@@ -4,7 +4,7 @@ Interactive capacity map of SSEN's distribution network (GSP → BSP → Primary
 
 ```
 python3 fetch_public.py   # refresh public layers into data/
-python3 serve.py          # http://localhost:8765
+python3 serve.py          # http://localhost:8765 (or use the hosted map below)
 ```
 
 ## Data sources
@@ -37,15 +37,16 @@ Smart meter rows join to secondary areas on the first 10 digits of `dataset_id` 
 (4 primary + 3 HV feeder + 3 secondary). The smart meter API (as opposed to manual file downloads) is restricted
 to SSEN-verified users; request verification from data@ssen.co.uk to automate it.
 
-## Weekly refresh
+## Hosting and weekly refresh
 
-`run-weekly.sh` re-pulls the public layers, re-downloads secondary areas only if SSEN republished them, and
-recomputes smart meter peaks from the newest 7 daily CSVs. Logs go to `logs/weekly-YYYY-MM-DD.log`.
+The map is served by GitHub Pages from `main`: https://rhystheblob.github.io/ssen-grid-map/
 
-Schedule it (Mondays 07:00 local) with:
-```
-cp com.rhys.ssen-grid-map.weekly.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.rhys.ssen-grid-map.weekly.plist
-```
-Until SSEN grants verified API access, the week's smart meter CSVs still have to be downloaded from the portal by
-hand before Monday's run.
+A Claude cloud routine ("SSEN grid map weekly refresh", Mondays 06:00 UTC) checks out this repo, runs
+`fetch_public.py` and `fetch_portal.py`, sanity-checks feature counts, and commits changed `data/` files, which
+republishes the map. `SSEN_API_KEY` is set as an environment variable on the cloud environment, never in the repo.
+Manage the routine at https://claude.ai/code/routines/trig_01YYGzTxvU8BEPKmTShbzBgo
+
+Smart meter: until SSEN grants verified API access, upload the week's daily CSVs from the portal's Raw files tab
+into `smart_meter_uploads/` before Monday's run (GitHub web UI: Add file → Upload files).
+
+`run-weekly.sh` runs the same refresh locally (it needs `.env` or `SSEN_API_KEY`).

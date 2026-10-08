@@ -16,7 +16,7 @@ Steps:
 The smart meter *API* is restricted to SSEN-verified users, so until access is granted
 those files are downloaded by hand from the portal.
 
-Usage:  python3 fetch_portal.py [--skip-secondary] [--skip-smart-meter] [--force]
+Usage:  python3 fetch_portal.py [--skip-secondary] [--skip-smart-meter] [--force] [--overview-only]
 """
 import collections
 import json
@@ -37,6 +37,9 @@ KEEP_PROPS = ["NRN_10_DIGIT", "TX_NRN", "HV_FEEDER_NRN", "PRIMARY_NRN_SPLIT",
               "PRIMARY_NAME_2025", "BSP_NAME", "GSP_NAME"]
 SIMPLIFY_DEG = 0.00008  # ~5-9 m; secondary areas are street-scale
 SMART_METER_DAYS = 7    # rolling window: the weekly run reports the past week's peak
+# A domestic supply tops out around 100 A x 230 V = 23 kW, so a half-hour averaging more than this per meter is a
+# bad reading (the raw files contain overflow values near 2^29 and 2^31 Wh) and is dropped.
+MAX_WH_PER_METER_HH = 12_000
 MANIFEST = DATA / "manifest.json"  # committed, so cloud runs know what was last published
 SMART_METER_DIR = ROOT / "smart_meter_uploads"
 
@@ -159,8 +162,32 @@ def build_secondary(key, force=False):
             json.dumps({"type": "FeatureCollection", "features": feats}, separators=(",", ":")))
         index[nrn] = stem
     (out_dir / "index.json").write_text(json.dumps(index))
+    build_secondary_overview()
     MANIFEST.write_text(json.dumps({**manifest, "secondary": current}, indent=1))
     print(f"secondary: {sum(map(len, by_primary.values()))} areas across {len(index)} primaries -> {out_dir}")
+
+
+def build_secondary_overview():
+    """Network-wide companions to the per-primary files, so the map can show every secondary at once:
+    points.json  - [lon, lat, NRN_10_DIGIT] per secondary area (a point inside each polygon)
+    bboxes.json  - file stem -> [minLon, minLat, maxLon, maxLat], to load polygons for the area in view"""
+    from shapely.geometry import shape
+
+    out_dir = DATA / "secondary"
+    points, bboxes = [], {}
+    for path in sorted(out_dir.glob("*.geojson")):
+        feats = json.loads(path.read_text())["features"]
+        b = [180.0, 90.0, -180.0, -90.0]
+        for f in feats:
+            g = shape(f["geometry"])
+            pt = g.representative_point()
+            points.append([round(pt.x, 4), round(pt.y, 4), f["properties"]["NRN_10_DIGIT"]])
+            x0, y0, x1, y1 = g.bounds
+            b = [min(b[0], x0), min(b[1], y0), max(b[2], x1), max(b[3], y1)]
+        bboxes[path.stem] = [round(v, 4) for v in b]
+    (out_dir / "points.json").write_text(json.dumps(points, separators=(",", ":")))
+    (out_dir / "bboxes.json").write_text(json.dumps(bboxes, separators=(",", ":")))
+    print(f"secondary overview: {len(points)} points, {len(bboxes)} primary bounding boxes")
 
 
 def build_smart_meter():
@@ -177,9 +204,14 @@ def build_smart_meter():
             "total_consumption_active_import", "data_collection_log_timestamp"]
     sec_ts = collections.Counter()           # (nrn10, ts) -> Wh, for coincident secondary peak
     feeders = {}                             # dataset_id -> stats
+    dropped = 0
     for f in files:
         print(f"smart meter: reading {f.name}")
         for chunk in pd.read_csv(f, usecols=lambda c: c in cols, dtype={"dataset_id": str}, chunksize=500_000):
+            meters = chunk["aggregated_device_count_active"].clip(lower=1)
+            bad = chunk["total_consumption_active_import"] > meters * MAX_WH_PER_METER_HH
+            dropped += int(bad.sum())
+            chunk = chunk[~bad].copy()
             chunk["nrn10"] = chunk["dataset_id"].str[:10]
             for (n, ts), wh in chunk.groupby(["nrn10", "data_collection_log_timestamp"])["total_consumption_active_import"].sum().items():
                 sec_ts[(n, ts)] += wh
@@ -205,15 +237,18 @@ def build_smart_meter():
         s["feeders"].append({"id": did, "name": f["name"], "meters": int(f["meters"]),
                              "peak_kw": round(f["peak"] * 2 / 1000, 1),
                              "avg_kw": round(f["total"] * 2 / 1000 / max(f["rows"], 1), 1)})
-    meta = {"files": [f.name for f in files], "unit": "kW", "secondaries": secondary}
+    meta = {"files": [f.name for f in files], "unit": "kW", "dropped_bad_rows": dropped, "secondaries": secondary}
     (DATA / "smart_meter_secondary.json").write_text(json.dumps(meta, separators=(",", ":")))
-    print(f"smart meter: {len(feeders)} LV feeders across {len(secondary)} secondary substations")
+    print(f"smart meter: {len(feeders)} LV feeders across {len(secondary)} secondary substations "
+          f"({dropped} impossible half-hour readings dropped)")
     for old in all_files[:-SMART_METER_DAYS]:
         old.unlink()
         print(f"smart meter: deleted {old.name} (outside the {SMART_METER_DAYS}-file window)")
 
 
 def main():
+    if "--overview-only" in sys.argv:
+        return build_secondary_overview()
     if "--skip-secondary" not in sys.argv:
         build_secondary(api_key(), force="--force" in sys.argv)
     if "--skip-smart-meter" not in sys.argv:

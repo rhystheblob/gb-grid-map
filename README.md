@@ -17,7 +17,7 @@ python3 serve.py          # http://localhost:8765 (or use the hosted map below)
 | Substation points (1,035) | ArcGIS `Sub_datapoint__Jan_2026_Final/FeatureServer/128` | none | done |
 | Secondary transformers + LV cables | ArcGIS `Secondary_Tx_Location`, `LV_Segment` | none | pilot area only (The Green primary, Southall) |
 | Secondary supply areas, network-wide | CKAN `secondary-substation-esa` (SEPD + SHEPD 2025 GeoJSON) | portal API key | `fetch_portal.py` |
-| Smart meter LV feeder usage | portal "Raw files" tab: daily CSVs (~800 MB), half-hourly per LV feeder | login (API needs SSEN verification) | done for 14 Jan 2026 (local refresh) |
+| Smart meter LV feeder usage | portal "Raw files" tab: daily CSVs (~800 MB), half-hourly per LV feeder | login (API needs SSEN verification) | done for 14 + 21 Jan 2026 (local refresh) |
 
 ArcGIS base: `https://services8.arcgis.com/euGIHHXuAe1iLVSR/arcgis/rest/services` (SSEN's own org, behind their
 "Centralised Network View"). Capacity fields come from SSEN's January 2026 publication. Re-check service names when
@@ -50,6 +50,6 @@ Smart meter data is refreshed locally, not by the cloud routine: SSEN's daily ra
 for git, and the API needs SSEN verification). Download days from the portal's Raw files tab into
 `smart_meter_uploads/` (git-ignored), run `python3 fetch_portal.py --skip-secondary`, and commit
 `data/smart_meter_secondary.json`. Files outside the newest-7 window are deleted automatically. Raw files lag
-~6 weeks; winter weekdays give the most useful peak. Current data: 14 Jan 2026.
+~6 weeks; winter weekdays give the most useful peak. Current data: 14 and 21 Jan 2026 (highest peak of the two).
 
 `run-weekly.sh` runs the same refresh locally (it needs `.env` or `SSEN_API_KEY`).

@@ -1,0 +1,7 @@
+.env
+data/raw/
+logs/
+__pycache__/
+*.part
+.DS_Store
+com.rhys.ssen-grid-map.weekly.plist

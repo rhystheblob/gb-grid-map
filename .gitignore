@@ -5,3 +5,4 @@ __pycache__/
 *.part
 .DS_Store
 com.rhys.ssen-grid-map.weekly.plist
+smart_meter_uploads/*.csv

@@ -145,7 +145,8 @@ def build_secondary(key, force=False):
             gj = json.loads(json.dumps(mapping(geom)), parse_float=lambda x: round(float(x), 5))
             p = {k: props.get(k) for k in KEEP_PROPS}
             p["LICENCE_AREA"] = area
-            p["NRN_10_DIGIT"] = str(p["NRN_10_DIGIT"])
+            # stored as a number upstream; restore leading zeros so it matches smart meter dataset_id[:10]
+            p["NRN_10_DIGIT"] = str(p["NRN_10_DIGIT"]).zfill(10)
             by_primary[str(props["PRIMARY_NRN_SPLIT"])].append({"type": "Feature", "properties": p, "geometry": gj})
 
     for old in out_dir.glob("*.geojson"):

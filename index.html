@@ -254,7 +254,8 @@ async function renderSecondary() {
   const smx = sm ? sm.secondaries : {};
   const intensity = state.level === 'smart';
   const val = p => { const d = smx[p.NRN_10_DIGIT]; if (!d) return null; return intensity ? (d.meters ? d.peak_kw / d.meters : null) : d.peak_kw; };
-  const breaks = intensity ? [0.8, 1.2, 1.6, 2.2] : [50, 100, 200, 350];
+  // bands from Jan 2026 winter-weekday data: roughly the 25th/50th/75th/95th percentiles
+  const breaks = intensity ? [0.8, 1.0, 1.6, 3.0] : [25, 50, 85, 150];
   const layer = L.geoJSON(fc, {
     style: f => ({ color: '#ffffff', weight: 0.6, fillColor: smColour(val(f.properties), breaks), fillOpacity: 0.7 }),
     onEachFeature: (f, l) => {

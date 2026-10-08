@@ -21,7 +21,7 @@ PY=python3
 
   newest=$(ls -1 smart_meter_uploads/*.csv 2>/dev/null | tail -1)
   if [[ -z "$newest" ]]; then
-    echo "note: no smart meter CSVs yet - upload daily files from the portal's Raw files tab"
+    echo "note: no smart meter CSVs yet - smart meter data is refreshed locally (see README)"
   elif [[ -n $(find "$newest" -mtime +8) ]]; then
     echo "note: newest smart meter file ($newest) is over a week old - download the latest days"
   fi

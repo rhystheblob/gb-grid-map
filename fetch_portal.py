@@ -9,8 +9,9 @@ Steps:
      map can load one primary's secondaries at a time.
      Skipped when SSEN hasn't republished since the last run (data/manifest.json).
   2. The newest SMART_METER_DAYS daily smart meter CSVs in smart_meter_uploads/ (from the
-     portal's "Raw files" tab) are aggregated to peak load per secondary substation and
-     per LV feeder -> data/smart_meter_secondary.json.
+     portal's "Raw files" tab, ~800 MB each, git-ignored) are aggregated to peak load per
+     secondary substation and per LV feeder -> data/smart_meter_secondary.json. Older CSVs
+     are deleted. This step runs locally; the cloud refresh leaves the committed JSON as is.
 
 The smart meter *API* is restricted to SSEN-verified users, so until access is granted
 those files are downloaded by hand from the portal.
@@ -165,8 +166,10 @@ def build_secondary(key, force=False):
 def build_smart_meter():
     import pandas as pd
 
-    # daily files are named by date (e.g. 2026-09-28.csv), so a name sort is chronological
-    files = sorted(SMART_METER_DIR.glob("*.csv"))[-SMART_METER_DAYS:]
+    # daily files are named by date (e.g. 2026-09-28.csv), so a name sort is chronological.
+    # Each is ~800 MB, so files that have dropped out of the window are deleted.
+    all_files = sorted(SMART_METER_DIR.glob("*.csv"))
+    files = all_files[-SMART_METER_DAYS:]
     if not files:
         print("smart meter: no CSVs in smart_meter_uploads/ - skipping")
         return
@@ -205,6 +208,9 @@ def build_smart_meter():
     meta = {"files": [f.name for f in files], "unit": "kW", "secondaries": secondary}
     (DATA / "smart_meter_secondary.json").write_text(json.dumps(meta, separators=(",", ":")))
     print(f"smart meter: {len(feeders)} LV feeders across {len(secondary)} secondary substations")
+    for old in all_files[:-SMART_METER_DAYS]:
+        old.unlink()
+        print(f"smart meter: deleted {old.name} (outside the {SMART_METER_DAYS}-file window)")
 
 
 def main():

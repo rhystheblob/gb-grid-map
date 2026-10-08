@@ -17,7 +17,7 @@ python3 serve.py          # http://localhost:8765 (or use the hosted map below)
 | Substation points (1,035) | ArcGIS `Sub_datapoint__Jan_2026_Final/FeatureServer/128` | none | done |
 | Secondary transformers + LV cables | ArcGIS `Secondary_Tx_Location`, `LV_Segment` | none | pilot area only (The Green primary, Southall) |
 | Secondary supply areas, network-wide | CKAN `secondary-substation-esa` (SEPD + SHEPD 2025 GeoJSON) | portal API key | `fetch_portal.py` |
-| Smart meter LV feeder usage | portal "Raw files" tab: daily CSVs, half-hourly per LV feeder | login (API needs SSEN verification) | manual download → `fetch_portal.py` |
+| Smart meter LV feeder usage | portal "Raw files" tab: daily CSVs (~800 MB), half-hourly per LV feeder | login (API needs SSEN verification) | done for 14 Jan 2026 (local refresh) |
 
 ArcGIS base: `https://services8.arcgis.com/euGIHHXuAe1iLVSR/arcgis/rest/services` (SSEN's own org, behind their
 "Centralised Network View"). Capacity fields come from SSEN's January 2026 publication. Re-check service names when
@@ -46,7 +46,10 @@ A Claude cloud routine ("SSEN grid map weekly refresh", Mondays 06:00 UTC) check
 republishes the map. `SSEN_API_KEY` is set as an environment variable on the cloud environment, never in the repo.
 Manage the routine at https://claude.ai/code/routines/trig_01YYGzTxvU8BEPKmTShbzBgo
 
-Smart meter: until SSEN grants verified API access, upload the week's daily CSVs from the portal's Raw files tab
-into `smart_meter_uploads/` before Monday's run (GitHub web UI: Add file → Upload files).
+Smart meter data is refreshed locally, not by the cloud routine: SSEN's daily raw files are ~800 MB each (too big
+for git, and the API needs SSEN verification). Download days from the portal's Raw files tab into
+`smart_meter_uploads/` (git-ignored), run `python3 fetch_portal.py --skip-secondary`, and commit
+`data/smart_meter_secondary.json`. Files outside the newest-7 window are deleted automatically. Raw files lag
+~6 weeks; winter weekdays give the most useful peak. Current data: 14 Jan 2026.
 
 `run-weekly.sh` runs the same refresh locally (it needs `.env` or `SSEN_API_KEY`).

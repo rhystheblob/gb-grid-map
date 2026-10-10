@@ -13,14 +13,24 @@ python3 serve.py          # http://localhost:8765
 
 ## GB operators
 
-| DNO | Licence areas | Source | Key needed | GSP / BSP / Primary | Geometry |
+| DNO | Licence areas | Source | Access | GSP / BSP / Primary | Geometry |
 |---|---|---|---|---|---|
-| SSEN | North Scotland, Southern England | data.ssen.co.uk + SSEN ArcGIS | `SSEN_API_KEY` (secondary only) | ✅ | supply areas |
-| NGED | E Midlands, W Midlands, S Wales, SW England | connecteddata.nationalgrid.co.uk `ltds-capacity-heatmap` | none (polygons: `NGED_API_KEY`) | BSP + Primary | site points |
-| Northern Powergrid | North East, Yorkshire | northernpowergrid.opendatasoft.com `heatmapsubstationareas` | none | ✅ | supply areas |
-| UKPN | London, East, South East | ukpowernetworks.opendatasoft.com | `UKPN_API_KEY` | pending key | |
-| ENWL | North West | electricitynorthwest.opendatasoft.com | `ENWL_API_KEY` | pending key | |
-| SPEN | Central/South Scotland, Merseyside & N Wales | spenergynetworks.opendatasoft.com | `SPEN_API_KEY` | pending key | |
+| SSEN | North Scotland, Southern England | data.ssen.co.uk + SSEN ArcGIS | open (`SSEN_API_KEY` for secondary) | 86 / 102 / 831 | supply areas |
+| NGED | E Midlands, W Midlands, S Wales, SW England | `ltds-capacity-heatmap` (CKAN) | open | – / 242 / 940 | site points |
+| Northern Powergrid | North East, Yorkshire | `heatmapsubstationareas` | open | 41 / 100 / 542 | supply areas |
+| UKPN | London, East, South East | GSP/grid/primary areas + `ukpn-capacity-heatmap` | login (`UKPN_API_KEY` or snapshot) | 58 / 177 / 785 | supply areas |
+| ENWL | North West | `enwl-{gsp,bsp,pry}-heatmap` + hierarchy polygons | login (`ENWL_API_KEY` or snapshot) | 20 / 70 / 377 | supply areas, numbers only |
+| SPEN | Central/South Scotland, Merseyside & N Wales | `distribution-capacity-heatmaps-{spd,spm}` + open polygons | login for heatmaps (`SPEN_API_KEY` or snapshot) | 101 / 147 / 740 | supply areas + BSP points |
+
+Login-only portals: with an API key in the environment the adapters fetch live. Without one they read a snapshot
+exported through the owner's signed-in browser into `data/raw/portals/<dno>_bundle.json` (git-ignored); the cloud
+routine has neither, so those operators keep their last committed layers until refreshed locally. To refresh a
+snapshot, export the datasets each adapter lists (Opendatasoft `/exports/geojson` or `/exports/json`) while signed
+in, save as that bundle (a JSON object keyed by dataset id), and run `python3 build_gb.py ukpn enwl spen`.
+
+Caveats: headroom is each operator's own estimate, so methods differ; RAG is the most comparable measure. ENWL
+publishes no RAG or substation names, so its RAG is derived by this map (red: no headroom, amber: under 2 MW) and
+sites are labelled by number. NGED's supply-area polygons need a login, so its sites are points.
 
 Northern Ireland (NIE Networks) is out of scope: no open-data API.
 
@@ -32,7 +42,7 @@ published, else the parent supply area that contains it, else name match). Outpu
 the raw token. Keys come from environment variables (cloud) or `.env` (local).
 
 Cloud network allowlist needs: `services8.arcgis.com`, `data-api.ssen.co.uk`, `*.r2.cloudflarestorage.com`,
-`connecteddata.nationalgrid.co.uk`, `*.opendatasoft.com`.
+`connecteddata.nationalgrid.co.uk`, `*.opendatasoft.com` (SPEN's open polygons are fetched even without a key).
 
 ## SSEN detail
 

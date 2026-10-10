@@ -86,6 +86,8 @@ def rag(value):
     if not value:
         return None
     v = str(value).strip().lower()
+    if v in ("g", "a", "r"):  # already a code (e.g. derived by an adapter)
+        return v.upper()
     for word, code in (("green", "G"), ("amber", "A"), ("red", "R")):
         if v.startswith(word):
             return code
@@ -109,7 +111,7 @@ def text(value):
 
 def site(level, name, geometry, **fields):
     props = {"level": level, "name": text(name)}
-    for k in ("id", "pid", "gsp", "bsp", "dlim", "glim", "nrn"):
+    for k in ("id", "pid", "gsp", "bsp", "dlim", "glim", "nrn", "note"):
         props[k] = text(fields.get(k))
     for k in ("dfirm", "dmax", "dhead", "ghead"):
         props[k] = num(fields.get(k))
@@ -134,3 +136,64 @@ def simplify(geometry, level):
     if g.is_empty:
         return None
     return json.loads(json.dumps(mapping(g)), parse_float=lambda x: round(float(x), 5))
+
+
+_BUNDLES = {}
+
+
+def portal_data(host, dataset, key_name, bundle, fmt="geojson"):
+    """An Opendatasoft dataset that needs a login: live via API key when one is configured, otherwise from the
+    snapshot exported through the owner's signed-in browser (data/raw/portals/<bundle>_bundle.json, git-ignored).
+    fmt is "geojson" (FeatureCollection) or "json" (list of records)."""
+    key = api_key(key_name)
+    if key:
+        url = f"https://{host}/api/explore/v2.1/catalog/datasets/{dataset}/exports/{fmt}"
+        return get_json(url, {"Authorization": f"Apikey {key}"})
+    path = ROOT / "data" / "raw" / "portals" / f"{bundle}_bundle.json"
+    if not path.exists():
+        raise MissingKey(key_name)
+    if bundle not in _BUNDLES:
+        _BUNDLES[bundle] = json.loads(path.read_text())
+    if dataset not in _BUNDLES[bundle]:
+        raise MissingKey(f"{key_name} (snapshot has no {dataset})")
+    return _BUNDLES[bundle][dataset]
+
+
+_WORST = {"R": 3, "A": 2, "G": 1, None: 0}
+
+
+def merge_points_into_areas(areas, points, prefer_points=True):
+    """Attach heatmap site points to the supply-area polygons that contain them.
+
+    One point in an area: its figures colour the area (overriding the area's own when prefer_points).
+    Several (e.g. one heatmap row per transformer): headroom and capacity are summed and the worst RAG wins.
+    Points outside every published area are returned as point sites so nothing is dropped."""
+    from shapely.geometry import shape
+    from shapely.strtree import STRtree
+
+    geoms = [shape(a["geometry"]) for a in areas]
+    tree = STRtree(geoms)
+    groups, loose = {}, []
+    for pt in points:
+        g = shape(pt["geometry"])
+        hit = next((i for i in tree.query(g) if geoms[i].contains(g)), None)
+        if hit is None:
+            loose.append(pt)
+        else:
+            groups.setdefault(hit, []).append(pt["properties"])
+    for i, pts in groups.items():
+        a = areas[i]["properties"]
+        if not prefer_points and a.get("drag"):
+            continue
+        for k in ("dfirm", "dmax", "dhead", "ghead"):
+            vals = [p[k] for p in pts if p[k] is not None]
+            a[k] = round(sum(vals), 2) if vals else a.get(k)
+        for rag_k, lim_k in (("drag", "dlim"), ("grag", "glim")):
+            worst = max(pts, key=lambda p: _WORST[p[rag_k]])
+            if worst[rag_k]:
+                a[rag_k], a[lim_k] = worst[rag_k], worst[lim_k]
+        for k in ("gsp", "bsp"):
+            a[k] = a.get(k) or pts[0].get(k)
+        if len(pts) > 1:
+            a["note"] = f"{len(pts)} heatmap entries combined (sum of headroom, worst RAG)"
+    return areas + loose

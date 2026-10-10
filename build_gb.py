@@ -51,11 +51,13 @@ def link_hierarchy(dno, sites):
     for i, s in enumerate(sites):
         p = s["properties"]
         p["id"] = f"{dno}:{p['level']}:{p['id'] or i}"
-        if p["pid"]:
-            up = "bsp" if p["level"] == "primary" and str(p["pid"]).upper().startswith("BSP") else "gsp"
-            p["pid"] = f"{dno}:{up}:{p['pid']}"
-    by_level = {lvl: [s for s in sites if s["properties"]["level"] == lvl and s["geometry"]] for lvl in LEVELS}
     ids = {s["properties"]["id"] for s in sites}
+    for s in sites:
+        p = s["properties"]
+        if p["pid"]:  # a DNO-supplied parent id: a primary's parent may be a BSP or (no BSP tier) a GSP
+            ups = ("bsp", "gsp") if p["level"] == "primary" else ("gsp",)
+            p["pid"] = next((f"{dno}:{u}:{p['pid']}" for u in ups if f"{dno}:{u}:{p['pid']}" in ids), None)
+    by_level = {lvl: [s for s in sites if s["properties"]["level"] == lvl and s["geometry"]] for lvl in LEVELS}
 
     def finder(parents):
         polys = [(shape(s["geometry"]), s["properties"]["id"]) for s in parents if s["geometry"]["type"] != "Point"]

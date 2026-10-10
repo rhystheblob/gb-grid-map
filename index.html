@@ -215,6 +215,7 @@ function popupHtml(p) {
   return `<div class="pop"><h3>${p.name || '–'}</h3>
     <div style="color:#5f6b7a;margin-bottom:6px">${cfg.label} · ${m.title || p.dno}</div>
     <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
+    ${p.note ? `<div class="note" style="margin-top:6px">${p.note}</div>` : ''}
     <div class="sources" style="margin-top:6px">Source: <a href="${m.source || '#'}" target="_blank" rel="noopener">${p.dno} open data</a> (${m.licence || ''})</div>${btn}</div>`;
 }
 

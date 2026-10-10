@@ -36,5 +36,44 @@
   "geometry": "polygons",
   "updated": "2026-10-10",
   "linked": "642/642"
+ },
+ "UKPN": {
+  "title": "UK Power Networks",
+  "licence": "CC BY 4.0",
+  "source": "https://ukpowernetworks.opendatasoft.com/",
+  "counts": {
+   "gsp": 58,
+   "bsp": 177,
+   "primary": 785
+  },
+  "geometry": "polygons",
+  "updated": "2026-10-10",
+  "linked": "962/962"
+ },
+ "ENWL": {
+  "title": "Electricity North West",
+  "licence": "CC BY 4.0",
+  "source": "https://electricitynorthwest.opendatasoft.com/",
+  "counts": {
+   "gsp": 20,
+   "bsp": 70,
+   "primary": 377
+  },
+  "geometry": "polygons",
+  "updated": "2026-10-10",
+  "linked": "447/447"
+ },
+ "SPEN": {
+  "title": "SP Energy Networks",
+  "licence": "CC BY 4.0",
+  "source": "https://spenergynetworks.opendatasoft.com/",
+  "counts": {
+   "gsp": 101,
+   "bsp": 147,
+   "primary": 740
+  },
+  "geometry": "polygons",
+  "updated": "2026-10-10",
+  "linked": "887/887"
  }
 }

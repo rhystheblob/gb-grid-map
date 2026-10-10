@@ -139,8 +139,8 @@ const NOTES = {
   gsp: 'Grid Supply Points: where the transmission network feeds each operator. Not every operator publishes this level (NGED starts at BSP). Click a site to drill down.',
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
-  secondary: 'Secondary substations (11kV/LV), coloured by smart meter peak load (winter weekday). SSEN only so far; other operators coming next. Grey = no smart meter data published.',
-  smart: 'Smart meter load intensity: peak kW per smart meter for each secondary. SSEN only so far.',
+  secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
+  smart: 'Measured peak load from aggregated smart meters (winter weekday). SSEN only so far.',
 };
 
 const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all' };
@@ -208,7 +208,7 @@ function popupHtml(p) {
   const cfg = LEVELS[p.level];
   let btn = '';
   if (cfg.child === 'secondary') {
-    if (p.dno === 'SSEN' && p.nrn) btn = `<button data-drill="${p.id}">Show secondary areas →</button>`;
+    btn = `<button data-drill="${p.id}">Show secondary substations →</button>`;
   } else if (childCount[p.id]) {
     btn = `<button data-drill="${p.id}">Show ${childCount[p.id]} sites below →</button>`;
   }
@@ -259,14 +259,6 @@ async function render(fit) {
 
 const currentPrimary = () => [...state.trail].reverse().find(t => t.level === 'primary');
 
-async function secondaryFile(nrn) {
-  const idx = await load('secondary_index', 'data/secondary/index.json').catch(() => null);
-  if (!idx) return null;
-  const v = String(nrn);
-  const key = [v, v.padStart(4, '0'), v.split('-')[0], v.split('-')[0].padStart(4, '0')].find(k => idx[k]);
-  return key ? `data/secondary/${encodeURIComponent(idx[key])}.geojson` : undefined;
-}
-
 const SM_RAMP = ['#2e9d5b', '#8cc152', '#e0c200', '#e8833a', '#d64545'];  // low → high load
 function smColour(v, breaks) {
   if (v == null) return getCss('--grey');
@@ -274,10 +266,18 @@ function smColour(v, breaks) {
   return SM_RAMP[i];
 }
 
-const SEC_POLY_ZOOM = 12;   // below this, secondaries are drawn as dots
-const SEC_MAX_FILES = 30;   // cap on per-primary polygon files loaded for one view
+const SEC_POLY_ZOOM = 13;   // below this, secondaries are drawn as dots
+const SEC_MAX_CELLS = 80;   // cap on ~10 km detail cells loaded for one view
+const CELL_LON = 0.15, CELL_LAT = 0.1;  // must match build_gb_secondary.py
+// point arrays are [lon, lat, util%|-1, smart meter peak kW|-1, operator index]
+const SEC_SCALE = {
+  secondary: { idx: 2, prop: 'util', breaks: [60, 80, 100, 120], unit: '%',
+               label: 'Peak demand as a share of transformer rating (utilisation), as each operator publishes it. Busier sites are drawn on top when zoomed out. Grey: no rating or demand published.' },
+  smart:     { idx: 3, prop: 'peak_kw', breaks: [25, 50, 85, 150], unit: 'kW',
+               label: 'Peak half-hour load from aggregated smart meters, winter weekday (SSEN so far).' },
+};
 
-// Canvas dot layer: ~93k secondaries is too many for individual Leaflet markers.
+// Canvas dot layer: GB has ~475k secondaries, far too many for individual Leaflet markers.
 const DotLayer = L.Layer.extend({
   initialize(points, colourOf) { this._pts = points; this._colourOf = colourOf; },
   onAdd(map) {
@@ -293,11 +293,12 @@ const DotLayer = L.Layer.extend({
     c.width = size.x * dpr; c.height = size.y * dpr; c.style.width = size.x + 'px'; c.style.height = size.y + 'px';
     L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
     const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
-    const b = map.getBounds().pad(0.05), z = map.getZoom(), r = z < 8 ? 1.3 : z < 10 ? 2 : 3.2;
+    const b = map.getBounds().pad(0.05), z = map.getZoom(), r = z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : 3.2;
+    const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
     const grey = [], byColour = {};
     for (const p of this._pts) {
-      if (p[0] < b.getWest() || p[0] > b.getEast() || p[1] < b.getSouth() || p[1] > b.getNorth()) continue;
-      const col = this._colourOf(p[2]);
+      if (p[0] < w || p[0] > e || p[1] < s || p[1] > n) continue;
+      const col = this._colourOf(p);
       (col ? (byColour[col] ||= []) : grey).push(map.latLngToContainerPoint([p[1], p[0]]));
     }
     const draw = (pts, fill, alpha) => {
@@ -305,116 +306,127 @@ const DotLayer = L.Layer.extend({
       for (const q of pts) { ctx.moveTo(q.x + r, q.y); ctx.arc(q.x, q.y, r, 0, 6.2832); }
       ctx.fill();
     };
-    draw(grey, getCss('--grey'), 0.35);                       // no data underneath
+    draw(grey, getCss('--grey'), 0.3);                         // no data underneath
     SM_RAMP.forEach(col => byColour[col] && draw(byColour[col], col, 0.9));  // low → high so hot spots sit on top
   },
 });
 
-function secondaryPopup(nrn, d, p) {
-  const title = d && d.name ? d.name : p ? 'Secondary ' + p.TX_NRN : 'Secondary ' + nrn.slice(-3);
-  const where = p ? `${p.GSP_NAME} › ${p.BSP_NAME} › ${p.PRIMARY_NAME_2025} · HV feeder ${p.HV_FEEDER_NRN}` : 'Zoom in for the supply area';
-  return `<div class="pop"><h3>${title}</h3><div style="color:#5f6b7a;margin-bottom:6px">${where}</div>
-    <table><tr><td>Network ref</td><td>${nrn}</td></tr>
-    ${d ? `<tr><td>Peak load</td><td>${d.peak_kw} kW (${(d.peak_at || '').replace('T', ' ').slice(0, 16)} UTC)</td></tr>
-    <tr><td>Smart meters</td><td>${d.meters}</td></tr><tr><td>Peak per meter</td><td>${d.meters ? (d.peak_kw / d.meters).toFixed(2) : '–'} kW</td></tr></table>
-    <div style="margin-top:6px;font-weight:600">LV feeders</div><table>${d.feeders.map(x =>
-      `<tr><td>${x.name || x.id.slice(-2)}</td><td>${x.peak_kw} kW peak · ${x.avg_kw} kW avg · ${x.meters} meters</td></tr>`).join('')}</table>`
-    : '<tr><td>Smart meter</td><td>SSEN publishes no smart meter data for this substation</td></tr></table>'}</div>`;
+function secondaryPopup(p) {
+  const m = manifest[p.dno] || {};
+  const v = (x, u) => x == null || x === '' ? '–' : (typeof x === 'number' ? `${x.toLocaleString()}${u || ''}` : x);
+  const rows = [
+    ['Utilisation', p.util != null ? `${Math.round(p.util)}%${p.uband ? ` (${p.uband})` : ''}` : '–'],
+    ['Transformer rating', v(p.rating, ' kVA')],
+    ['Peak demand', v(p.md, ' kVA')],
+    ['Demand headroom', v(p.headroom, ' kVA')],
+    ['Customers', v(p.cust)],
+    ['Primary', v(p.primary)],
+  ];
+  if (p.gen_headroom != null) rows.push(['Generation headroom', v(p.gen_headroom, ' kVA')]);
+  if (p.reinf) rows.push(['Predicted reinforcement', p.reinf]);
+  if (p.lct != null) rows.push(['Low-carbon tech connected', v(p.lct)]);
+  if (p.gen_kw != null) rows.push(['Generation connected', v(p.gen_kw, ' kW')]);
+  if (p.peak_kw != null) rows.push(['Smart meter peak', `${p.peak_kw} kW (${p.meters} meters)`]);
+  if (p.month) rows.push(['Highest month', p.month]);
+  const note = p.note ? `${p.note}.` : p.dno === 'SSEN' ? 'SSEN publishes no transformer ratings, so there is no utilisation; switch to Smart meter for measured load.' : '';
+  return `<div class="pop"><h3>${p.name || 'Secondary ' + p.id}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">Secondary substation${p.kind ? ' · ' + p.kind : ''} · ${m.title || p.dno} · ref ${p.id}</div>
+    <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
+    ${note ? `<div class="note" style="margin-top:6px">${note}</div>` : ''}
+    <div class="sources" style="margin-top:6px">Source: <a href="${m.source || '#'}" target="_blank" rel="noopener">${p.dno} open data</a></div></div>`;
 }
 
-function secondaryPolygons(fc, smx, colourOf) {
-  return L.geoJSON(fc, {
-    style: f => ({ color: '#ffffff', weight: 0.6, fillColor: colourOf(f.properties.NRN_10_DIGIT) || getCss('--grey'),
-                   fillOpacity: colourOf(f.properties.NRN_10_DIGIT) ? 0.7 : 0.35 }),
-    onEachFeature: (f, l) => {
-      const p = f.properties, d = smx[p.NRN_10_DIGIT];
-      l.bindTooltip(d && d.name ? d.name : `Secondary ${p.TX_NRN}`, { sticky: true });
-      l.bindPopup(() => secondaryPopup(p.NRN_10_DIGIT, d, p), { maxWidth: 380 });
-    }
-  });
-}
-
-function secondaryStats(nrns, smx, label) {
-  const vals = nrns.map(n => smx[n]).filter(Boolean);
-  renderStats(null, [
-    [nrns.length.toLocaleString(), label],
-    [`${vals.length.toLocaleString()} (${nrns.length ? Math.round(100 * vals.length / nrns.length) : 0}%)`, 'with smart meter data'],
-    [vals.reduce((a, d) => a + d.meters, 0).toLocaleString(), 'smart meters'],
-    [vals.length ? Math.max(...vals.map(d => d.peak_kw)).toFixed(0) + ' kW' : '–', 'highest secondary peak'],
-  ]);
-}
+const secCellCache = {};
+const secCell = (dno, key) => secCellCache[dno + key] ||= fetch(`data/gb/sec/${dno}/${key}.geojson`).then(r => r.ok ? r.json() : null);
+const cellKey = (lon, lat) => `${Math.floor(lon / CELL_LON)}_${Math.floor(lat / CELL_LAT)}`;
 
 async function renderSecondary() {
-  const sm = await load('smart', 'data/smart_meter_secondary.json').catch(() => null);
-  const smx = sm ? sm.secondaries : {};
-  const intensity = state.level === 'smart';
-  // bands from Jan 2026 winter-weekday data: roughly the 25th/50th/75th/95th percentiles
-  const breaks = intensity ? [0.8, 1.0, 1.6, 3.0] : [25, 50, 85, 150];
-  const colourOf = nrn => {
-    const d = smx[nrn]; if (!d) return null;
-    const v = intensity ? (d.meters ? d.peak_kw / d.meters : null) : d.peak_kw;
-    return v == null ? null : smColour(v, breaks);
-  };
-  renderLegend(breaks, intensity ? 'kW/meter' : 'kW', !sm);
+  const scale = SEC_SCALE[state.level];
+  const index = await load('sec_index', 'data/gb/sec/index.json').catch(() => null);
+  if (!index) { renderStats(null, [['–', 'secondary data not built yet']]); return; }
+  const dnos = Object.keys(index).filter(d => (state.dno === 'all' || d === state.dno)
+                                           && (state.level !== 'smart' || d === 'SSEN'));
+  const parts = await Promise.all(dnos.map(d => load('sec_pts_' + d, `data/gb/sec/points_${d}.json`)));
+  const pts = [];
+  parts.forEach((arr, i) => (arr || []).forEach(p => pts.push([p[0], p[1], p[2], p[3], i])));
+  const cellSets = dnos.map(d => new Set(index[d].cells));
+  const colourOf = p => p[scale.idx] >= 0 ? smColour(p[scale.idx], scale.breaks) : null;
+  const colourProps = pr => pr[scale.prop] != null ? smColour(pr[scale.prop], scale.breaks) : null;
+  renderLegend(scale.breaks, scale.unit, scale.label);
   fillSearch([]);
 
-  // Drilled into one primary: just that primary's supply areas
-  const prim = currentPrimary();
-  if (prim) {
-    const file = await secondaryFile(prim.nrn);
-    if (file === null) { renderStats(null, [['–', 'secondary areas not downloaded yet']]); return; }
-    if (!file) { renderStats(null, [['0', `secondary areas published for primary ${prim.nrn}`]]); return; }
-    const fc = await fetch(file).then(r => r.json());
-    const layer = secondaryPolygons(fc, smx, colourOf);
-    secLayers = [layer.addTo(map)];
-    if (fc.features.length) map.fitBounds(layer.getBounds(), { padding: [20, 20] });
-    secondaryStats(fc.features.map(f => f.properties.NRN_10_DIGIT), smx, 'secondary areas');
-    return;
-  }
+  const prim = currentPrimary();  // drilled in from a primary: start zoomed to it
+  if (prim && prim.bounds) map.fitBounds(prim.bounds, { padding: [20, 20], maxZoom: 15 });
 
-  // Network-wide: dots for every secondary, polygons for the primaries in view once zoomed in
-  const [pts, bboxes] = await Promise.all([
-    load('secondary_points', 'data/secondary/points.json').catch(() => null),
-    load('secondary_bboxes', 'data/secondary/bboxes.json').catch(() => null)]);
-  if (!pts) { renderStats(null, [['–', 'secondary areas not downloaded yet']]); return; }
   const dots = new DotLayer(pts, colourOf);
   const polys = L.layerGroup();
-  const fileCache = {};
-  let shownStems = '';
+  let shown = '';
+  const toLayer = fc => L.geoJSON(fc, {
+    style: f => f.geometry.type === 'Point'
+      ? { color: '#ffffff', weight: 1, fillColor: colourProps(f.properties) || getCss('--grey'), fillOpacity: colourProps(f.properties) ? 0.95 : 0.5 }
+      : { color: '#ffffff', weight: 0.6, fillColor: colourProps(f.properties) || getCss('--grey'), fillOpacity: colourProps(f.properties) ? 0.7 : 0.3 },
+    pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5 }),
+    onEachFeature: (f, l) => {
+      l.bindTooltip(`${f.properties.name || 'Secondary ' + f.properties.id} (${f.properties.dno})`, { sticky: true });
+      l.bindPopup(() => secondaryPopup(f.properties), { maxWidth: 380 });
+    },
+  });
 
   const update = async () => {
     const b = map.getBounds();
-    const inView = pts.filter(p => b.contains([p[1], p[0]])).map(p => p[2]);
-    secondaryStats(inView, smx, 'secondaries in view');
-    if (map.getZoom() < SEC_POLY_ZOOM || !bboxes) {
-      if (!map.hasLayer(dots)) { polys.clearLayers(); shownStems = ''; map.removeLayer(polys); dots.addTo(map); }
+    const inView = pts.filter(p => b.contains([p[1], p[0]]));
+    const withV = inView.filter(p => p[scale.idx] >= 0);
+    renderStats(null, [
+      [inView.length.toLocaleString(), 'secondaries in view'],
+      [`${withV.length.toLocaleString()} (${inView.length ? Math.round(100 * withV.length / inView.length) : 0}%)`,
+       state.level === 'smart' ? 'with smart meter data' : 'with utilisation'],
+      state.level === 'smart'
+        ? [withV.length ? Math.max(...withV.map(p => p[3])) + ' kW' : '–', 'highest secondary peak']
+        : [withV.filter(p => p[2] > 100).length.toLocaleString(), 'over 100% utilised'],
+      [new Set(inView.map(p => p[4])).size, 'operators in view'],
+    ]);
+    const keys = [];
+    if (map.getZoom() >= SEC_POLY_ZOOM) {
+      for (let x = Math.floor(b.getWest() / CELL_LON); x <= Math.floor(b.getEast() / CELL_LON); x++)
+        for (let y = Math.floor(b.getSouth() / CELL_LAT); y <= Math.floor(b.getNorth() / CELL_LAT); y++) keys.push(`${x}_${y}`);
+    }
+    if (!keys.length || keys.length > SEC_MAX_CELLS) {
+      if (!map.hasLayer(dots)) { polys.clearLayers(); shown = ''; map.removeLayer(polys); dots.addTo(map); }
       return;
     }
-    const stems = Object.keys(bboxes).filter(k => {
-      const [x0, y0, x1, y1] = bboxes[k];
-      return x1 >= b.getWest() && x0 <= b.getEast() && y1 >= b.getSouth() && y0 <= b.getNorth();
-    }).slice(0, SEC_MAX_FILES);
-    const key = stems.sort().join('|');
-    if (key === shownStems) return;
-    shownStems = key;
-    const fcs = await Promise.all(stems.map(k => fileCache[k] ||= fetch(`data/secondary/${encodeURIComponent(k)}.geojson`).then(r => r.json())));
-    if (shownStems !== key) return;  // view moved on while loading
+    const wanted = dnos.flatMap((d, i) => keys.filter(k => cellSets[i].has(k)).map(k => [d, k]));
+    const sig = wanted.map(w => w.join('/')).join('|');
+    if (sig === shown) return;
+    shown = sig;
+    const fcs = await Promise.all(wanted.map(([d, k]) => secCell(d, k)));
+    if (shown !== sig) return;  // view moved on while loading
     polys.clearLayers();
-    fcs.forEach(fc => polys.addLayer(secondaryPolygons(fc, smx, colourOf)));
+    fcs.filter(Boolean).forEach(fc => polys.addLayer(toLayer(fc)));
     if (map.hasLayer(dots)) map.removeLayer(dots);
     polys.addTo(map);
   };
 
-  // clicking a dot: nearest secondary within a few pixels
-  const onClick = e => {
+  // clicking a dot: nearest secondary within a few pixels, details from its detail cell
+  const onClick = async e => {
     if (!map.hasLayer(dots)) return;
     const c = map.latLngToContainerPoint(e.latlng);
     let best = null, bestD = 64;
     for (const p of pts) {
+      if (Math.abs(p[1] - e.latlng.lat) > 0.2 || Math.abs(p[0] - e.latlng.lng) > 0.3) continue;
       const q = map.latLngToContainerPoint([p[1], p[0]]), dd = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
       if (dd < bestD) { bestD = dd; best = p; }
     }
-    if (best) L.popup({ maxWidth: 380 }).setLatLng([best[1], best[0]]).setContent(secondaryPopup(best[2], smx[best[2]])).openOn(map);
+    if (!best) return;
+    const fc = await secCell(dnos[best[4]], cellKey(best[0], best[1]));
+    if (!fc) return;
+    const near = f => {  // the feature at this dot: exact point, or the area whose box contains it
+      const g = L.geoJSON(f);
+      if (f.geometry.type === 'Point') return L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]).distanceTo([best[1], best[0]]);
+      const bb = g.getBounds();
+      return bb.contains([best[1], best[0]]) ? bb.getCenter().distanceTo([best[1], best[0]]) : Infinity;
+    };
+    const feat = fc.features.reduce((a, f) => (near(f) < near(a) ? f : a), fc.features[0]);
+    L.popup({ maxWidth: 380 }).setLatLng([best[1], best[0]]).setContent(secondaryPopup(feat.properties)).openOn(map);
   };
 
   dots.addTo(map);
@@ -442,14 +454,13 @@ function renderStats(props, custom) {
   ].map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join('');
 }
 
-function renderLegend(smBreaks, smUnit, smMissing) {
+function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
   if (state.level === 'secondary' || state.level === 'smart') {
     if (!smBreaks) { el.innerHTML = ''; return; }
-    el.innerHTML = smMissing ? '<div class="note">No smart meter data loaded yet: areas shown grey.</div>'
-      : `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
-      <div class="ramp-l"><span>low</span><span>${smBreaks[1]}</span><span>${smBreaks[3]}+ ${smUnit}</span></div>
-      <div class="note" style="margin-top:6px">Peak half-hour load from aggregated smart meters (higher = more stressed).</div>`;
+    el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
+      <div class="ramp-l"><span>&lt;${smBreaks[0]}</span><span>${smBreaks[1]}</span><span>${smBreaks[2]}</span><span>${smBreaks[3]}+ ${smUnit}</span></div>
+      <div class="note" style="margin-top:6px">${smLabel}</div>`;
     return;
   }
   if (state.metric.endsWith('RAG')) {
@@ -477,7 +488,13 @@ async function drill(id) {
   let child = LEVELS[state.level].child;
   // some GSPs feed primaries directly (no BSP tier), e.g. much of northern Scotland
   if (child === 'bsp' && !(await loadLevel('bsp')).features.some(f => f.properties.pid === id)) child = 'primary';
-  state.trail.push({ level: state.level, id, name: p.name, child, nrn: p.nrn });
+  let bounds = null;
+  if (child === 'secondary') {
+    const f = (await loadLevel(state.level)).features.find(x => x.properties.id === id);
+    bounds = f.geometry.type === 'Point' ? L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]).toBounds(4000)
+                                         : L.geoJSON(f).getBounds();
+  }
+  state.trail.push({ level: state.level, id, name: p.name, child, nrn: p.nrn, bounds });
   state.filter = child === 'secondary' ? null : id;
   state.level = child;
   map.closePopup();
@@ -526,8 +543,7 @@ document.getElementById('showLicence').addEventListener('change', async e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  if (state.level === 'secondary' || state.level === 'smart') state.level = 'gsp';
-  render(true);
+  render(state.level !== 'secondary' && state.level !== 'smart');
 });
 
 (async () => {

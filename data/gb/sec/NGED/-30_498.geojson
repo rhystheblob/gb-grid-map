@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"dno":"NGED","id":"333914","name":"Savage Rd No 2","cust":151.0,"primary":"Weston Mill","lct":0.0,"gen_kw":82.0,"kind":"Grd Mtd Dist. Substation","note":"Peak demand is NGED's published maximum (larger of day and night); method not stated"},"geometry":{"type":"Point","coordinates":[-4.4449,49.8795]}}]}

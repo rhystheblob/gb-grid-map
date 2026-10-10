@@ -32,6 +32,25 @@ Caveats: headroom is each operator's own estimate, so methods differ; RAG is the
 publishes no RAG or substation names, so its RAG is derived by this map (red: no headroom, amber: under 2 MW) and
 sites are labelled by number. NGED's supply-area polygons need a login, so its sites are points.
 
+### Secondary substations (`build_gb_secondary.py`)
+
+~475k GB secondaries in one shape; the common measure is utilisation = peak demand / transformer rating.
+
+| DNO | Secondaries | With utilisation | Geometry | Source (access) |
+|---|---|---|---|---|
+| SSEN | 93,467 | none (no ratings published; smart meter peak instead) | supply areas | CKAN `secondary-substation-esa` (key) |
+| UKPN | 76,972 | 76,551 (published as bands) | 56,889 supply areas + sites | `ukpn-secondary-sites`, `ukpn_secondary_postcode_area` (login) |
+| ENWL | 33,181 | 33,181 | transformer points | `sp-enw-capacity-distribution-tx` (login) |
+| NPg | 57,248 | 26,920 (demand redacted at small sites) | 51,460 supply areas + sites | `substation_sites_list` (open), `distribution-substation-service-areas` (login) |
+| NGED | 195,717 | 162,022 | site points (55% located from OS grid refs) | `distribution-substations` (login) |
+| SPEN | 18,874 | 18,874 (monitored transformers only) | points | `lv_monitor` (login) |
+
+Inputs live in `data/raw/portals/` (git-ignored; login-only files exported via the owner's browser). Outputs:
+`data/gb/sec/points_<DNO>.json` (every secondary as `[lon, lat, util%, peak kW]` for the zoomed-out view) and
+`data/gb/sec/<DNO>/<cell>.geojson` (full detail per ~10 km cell, loaded from zoom 13). Methods differ: UKPN bands,
+NGED's maximum demand method isn't stated, SPEN's monitored subset reads low. ~226 MB of cell files; moving to
+vector tiles is part of the AWS step.
+
 Northern Ireland (NIE Networks) is out of scope: no open-data API.
 
 `build_gb.py` normalises every operator to one schema modelled on the LTDS Capacity Heatmap (demand/generation

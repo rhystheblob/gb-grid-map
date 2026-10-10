@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"dno":"NGED","id":"527033","name":"Kidwelly Primary Ev","cust":0.0,"primary":"Kidwelly","lct":0.0,"gen_kw":0.0,"kind":"Pole Mtd Dist. Substation","note":"Peak demand is NGED's published maximum (larger of day and night); method not stated"},"geometry":{"type":"Point","coordinates":[-4.32048,52.34198]}}]}

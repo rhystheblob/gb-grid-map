@@ -32,6 +32,13 @@ RAW = ROOT / "data" / "raw" / "portals"
 OUT = ROOT / "data" / "gb" / "sec"
 CELL_LON, CELL_LAT = 0.15, 0.1          # ~10 km cells; the map loads the cells in view from zoom 13
 SIMPLIFY_DEG = 0.00008                  # as for the SSEN secondary areas
+# Domestic aggregates peak around 1 kW per meter (99.9% under 7.5). A substation averaging more than this per meter
+# at its peak half-hour is treated as a bad reading (faulty meter or non-domestic load skewing a small group).
+MAX_PEAK_KW_PER_METER = 10
+
+
+def plausible_peak(kw, meters):
+    return kw is not None and meters and kw / meters <= MAX_PEAK_KW_PER_METER
 
 
 def cell_key(lon, lat):
@@ -117,6 +124,8 @@ def ssen():
             p = feat["properties"]
             lon, lat = rep_point(feat["geometry"])
             sm = smart.get(p["NRN_10_DIGIT"], {})
+            if not plausible_peak(sm.get("peak_kw"), sm.get("meters")):
+                sm = {"name": sm.get("name")}
             out.append(rec("SSEN", p["NRN_10_DIGIT"], sm.get("name"), lon, lat, feat["geometry"],
                            primary=p.get("PRIMARY_NAME_2025"), peak_kw=sm.get("peak_kw"), meters=sm.get("meters")))
     return out
@@ -194,13 +203,13 @@ def npg():
             named = [i for i in inside if (sites[i].get("site_name") or "").strip().upper() == name]
             pick = named[0] if named else inside[0] if len(inside) == 1 else None
             if pick is not None and pick not in area_of:
-                area_of[pick] = g
+                area_of[pick] = (g, str(feat["properties"].get("source_site_spid") or ""))
     out = []
     for i, s in enumerate(sites):
         rating, md = f(s.get("transformer_rating_kva")), f(s.get("maximum_demand"))
-        geom = area_of.get(i)
+        geom, spid = area_of.get(i, (None, None))
         out.append(rec("NPg", s.get("substation_id"), s.get("site_name"), s["latlong"]["lon"], s["latlong"]["lat"],
-                       simplified(geom) if geom else None,
+                       simplified(geom) if geom else None, spid=spid,
                        util=util(md, rating), rating=rating, md=md, cust=s.get("customer_numbers"),
                        primary=s.get("upstream_substation"), kind=s.get("site_type")))
     return out
@@ -241,6 +250,46 @@ def spen():
     return out
 
 
+def attach_smart(dno, records):
+    """Join peaks from smart_meter_gb.py (data/raw/smart/<DNO>.json) by substation id (or NPg SPID); peaks that
+    carry coordinates but match no id go to the nearest secondary within ~50 m."""
+    path = ROOT / "data" / "raw" / "smart" / f"{dno}.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    days = " and ".join(data.get("days", []))
+    peaks = {k: v for k, v in data["peaks"].items() if plausible_peak(v[0], v[1])}
+    if len(peaks) < len(data["peaks"]):
+        print(f"  smart meter: dropped {len(data['peaks']) - len(peaks)} implausible peaks (> {MAX_PEAK_KW_PER_METER} kW/meter)")
+    matched = set()
+    for r in records:
+        if not r:
+            continue
+        p = r["properties"]
+        key = p["id"] if p["id"] in peaks else p.get("spid") if p.get("spid") in peaks else None
+        if key:
+            pk = peaks[key]
+            p.update(peak_kw=pk[0], meters=pk[1], peak_at=pk[2], peak_days=days)
+            matched.add(key)
+    grid = {}
+    for r in records:
+        if r and "peak_kw" not in r["properties"]:
+            lon, lat = r["_pt"]
+            grid.setdefault((round(lon, 3), round(lat, 3)), []).append(r)
+    by_location = 0
+    for key, pk in peaks.items():
+        if key in matched or len(pk) < 5 or not pk[3] or not pk[4]:
+            continue
+        lon, lat = float(pk[3]), float(pk[4])
+        near = [c for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                for c in grid.get((round(lon, 3) + dx / 1000, round(lat, 3) + dy / 1000), [])]
+        best = min(near, key=lambda c: (c["_pt"][0] - lon) ** 2 + (c["_pt"][1] - lat) ** 2, default=None)
+        if best and ((best["_pt"][0] - lon) * 0.6) ** 2 + (best["_pt"][1] - lat) ** 2 < 0.00045 ** 2:
+            best["properties"].update(peak_kw=pk[0], meters=pk[1], peak_at=pk[2], peak_days=days)
+            by_location += 1
+    print(f"  smart meter: {len(matched)} by id, {by_location} by location, of {len(peaks)} published")
+
+
 READERS = {"SSEN": ssen, "UKPN": ukpn, "ENWL": enwl, "NPg": npg, "NGED": nged, "SPEN": spen}
 
 
@@ -262,7 +311,8 @@ def write(dno, records):
     with_util = sum(1 for p in points if p[2] >= 0)
     polys = sum(1 for r in records if r["geometry"]["type"] != "Point")
     print(f"{dno}: {len(records)} secondaries, {with_util} with utilisation, {polys} supply areas, {len(cells)} cells")
-    return {"cells": sorted(cells), "count": len(records), "with_util": with_util, "areas": polys}
+    smart = sum(1 for p in points if p[3] >= 0)
+    return {"cells": sorted(cells), "count": len(records), "with_util": with_util, "areas": polys, "smart": smart}
 
 
 def main():
@@ -277,6 +327,7 @@ def main():
         except FileNotFoundError as e:
             print(f"{dno}: input missing ({e.filename}) - keeping previous data")
             continue
+        attach_smart(dno, records)
         index[dno] = write(dno, records)
     index_path.write_text(json.dumps(index, indent=1))
 

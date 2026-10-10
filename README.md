@@ -51,6 +51,22 @@ Inputs live in `data/raw/portals/` (git-ignored; login-only files exported via t
 NGED's maximum demand method isn't stated, SPEN's monitored subset reads low. ~226 MB of cell files; moving to
 vector tiles is part of the AWS step.
 
+### Smart meter peaks (`smart_meter_gb.py`)
+
+Peak half-hour load per secondary from Ofgem-standard aggregated smart meter data, on the same two winter Wednesdays
+as SSEN (14 and 21 Jan 2026) so operators share the same weather:
+
+| DNO | Secondaries with peaks | Source |
+|---|---|---|
+| SSEN | 37,022 | portal Raw files (daily CSVs), see SSEN detail |
+| UKPN | 55,945 | UKPN Azure Blob container via the public read-only SAS token in UKPN's "Smart Meter Consumption Data Azure Blob Storage.pdf" (`UKPN_SAS` in `.env`; expires 2026-11-10). Files are named by publication month: `February_2026` holds January. ~14 GB streamed, never stored. |
+| NGED | 29,960 | `aggregated-smart-meter-data-secondary-substation` (login): 75 gz parts for Jan 2026, aggregated inside the owner's signed-in browser |
+| NPg | 2,074 | `aggregated-smart-metering-data` (login), monthly zips ending July 2025, so Jan 2025 (15 and 22 Jan) |
+| ENWL, SPEN | – | ENWL publishes installation counts only; SPEN only single-month summer pilots |
+
+Peaks averaging over 10 kW per meter are treated as bad readings and dropped (~0.05%). Output:
+`data/raw/smart/<DNO>.json`, joined by `build_gb_secondary.py` (by substation id; NPg by SPID, else nearest site).
+
 Northern Ireland (NIE Networks) is out of scope: no open-data API.
 
 `build_gb.py` normalises every operator to one schema modelled on the LTDS Capacity Heatmap (demand/generation

@@ -977,7 +977,8 @@
   ],
   "count": 93467,
   "with_util": 0,
-  "areas": 93467
+  "areas": 93467,
+  "smart": 37022
  },
  "UKPN": {
   "cells": [
@@ -1283,7 +1284,8 @@
   ],
   "count": 76972,
   "with_util": 76551,
-  "areas": 56889
+  "areas": 56889,
+  "smart": 55945
  },
  "ENWL": {
   "cells": [
@@ -1438,7 +1440,8 @@
   ],
   "count": 33181,
   "with_util": 33181,
-  "areas": 0
+  "areas": 0,
+  "smart": 0
  },
  "NPg": {
   "cells": [
@@ -1719,7 +1722,8 @@
   ],
   "count": 57248,
   "with_util": 26920,
-  "areas": 51460
+  "areas": 51460,
+  "smart": 2074
  },
  "NGED": {
   "cells": [
@@ -2349,7 +2353,8 @@
   ],
   "count": 195717,
   "with_util": 162022,
-  "areas": 0
+  "areas": 0,
+  "smart": 29960
  },
  "SPEN": {
   "cells": [
@@ -2631,6 +2636,7 @@
   ],
   "count": 18874,
   "with_util": 18874,
-  "areas": 0
+  "areas": 0,
+  "smart": 0
  }
 }

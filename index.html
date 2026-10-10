@@ -140,7 +140,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
-  smart: 'Measured peak load from aggregated smart meters (winter weekday). SSEN only so far.',
+  smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
 const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all' };
@@ -219,7 +219,10 @@ function popupHtml(p) {
     <div class="sources" style="margin-top:6px">Source: <a href="${m.source || '#'}" target="_blank" rel="noopener">${p.dno} open data</a> (${m.licence || ''})</div>${btn}</div>`;
 }
 
+let renderToken = 0;  // a newer render() supersedes one still waiting on data
+
 async function render(fit) {
+  const token = ++renderToken;
   if (areaLayer) { map.removeLayer(areaLayer); areaLayer = null; }
   if (secLayers) { secLayers.forEach(l => map.removeLayer(l)); secLayers = null; }
   if (secCleanup) { secCleanup(); secCleanup = null; }
@@ -231,10 +234,11 @@ async function render(fit) {
   renderCrumbs();
   renderLegend();
 
-  if (state.level === 'secondary' || state.level === 'smart') return renderSecondary();
+  if (state.level === 'secondary' || state.level === 'smart') return renderSecondary(token);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
+  if (token !== renderToken) return;
   const fc = await loadLevel(state.level);
   const feats = fc.features.filter(f => (!state.filter || f.properties.pid === state.filter)
                                      && (state.dno === 'all' || f.properties.dno === state.dno));
@@ -274,7 +278,7 @@ const SEC_SCALE = {
   secondary: { idx: 2, prop: 'util', breaks: [60, 80, 100, 120], unit: '%',
                label: 'Peak demand as a share of transformer rating (utilisation), as each operator publishes it. Busier sites are drawn on top when zoomed out. Grey: no rating or demand published.' },
   smart:     { idx: 3, prop: 'peak_kw', breaks: [25, 50, 85, 150], unit: 'kW',
-               label: 'Peak half-hour load from aggregated smart meters, winter weekday (SSEN so far).' },
+               label: 'Peak half-hour load from aggregated smart meters on two winter Wednesdays (14 and 21 Jan 2026; NPg: 15 and 22 Jan 2025, its latest winter). ENWL publishes no consumption data and SPEN only summer pilots, so they are not shown.' },
 };
 
 // Canvas dot layer: GB has ~475k secondaries, far too many for individual Leaflet markers.
@@ -326,7 +330,8 @@ function secondaryPopup(p) {
   if (p.reinf) rows.push(['Predicted reinforcement', p.reinf]);
   if (p.lct != null) rows.push(['Low-carbon tech connected', v(p.lct)]);
   if (p.gen_kw != null) rows.push(['Generation connected', v(p.gen_kw, ' kW')]);
-  if (p.peak_kw != null) rows.push(['Smart meter peak', `${p.peak_kw} kW (${p.meters} meters)`]);
+  if (p.peak_kw != null) rows.push(['Smart meter peak', `${p.peak_kw} kW from ${p.meters} meters${p.peak_at ? ` at ${p.peak_at} UTC` : ''}`]);
+  if (p.peak_days) rows.push(['Smart meter days', p.peak_days]);
   if (p.month) rows.push(['Highest month', p.month]);
   const note = p.note ? `${p.note}.` : p.dno === 'SSEN' ? 'SSEN publishes no transformer ratings, so there is no utilisation; switch to Smart meter for measured load.' : '';
   return `<div class="pop"><h3>${p.name || 'Secondary ' + p.id}</h3>
@@ -340,13 +345,14 @@ const secCellCache = {};
 const secCell = (dno, key) => secCellCache[dno + key] ||= fetch(`data/gb/sec/${dno}/${key}.geojson`).then(r => r.ok ? r.json() : null);
 const cellKey = (lon, lat) => `${Math.floor(lon / CELL_LON)}_${Math.floor(lat / CELL_LAT)}`;
 
-async function renderSecondary() {
+async function renderSecondary(token) {
   const scale = SEC_SCALE[state.level];
   const index = await load('sec_index', 'data/gb/sec/index.json').catch(() => null);
   if (!index) { renderStats(null, [['–', 'secondary data not built yet']]); return; }
   const dnos = Object.keys(index).filter(d => (state.dno === 'all' || d === state.dno)
-                                           && (state.level !== 'smart' || d === 'SSEN'));
+                                           && (state.level !== 'smart' || index[d].smart > 0));
   const parts = await Promise.all(dnos.map(d => load('sec_pts_' + d, `data/gb/sec/points_${d}.json`)));
+  if (token !== renderToken) return;
   const pts = [];
   parts.forEach((arr, i) => (arr || []).forEach(p => pts.push([p[0], p[1], p[2], p[3], i])));
   const cellSets = dnos.map(d => new Set(index[d].cells));
@@ -381,7 +387,7 @@ async function renderSecondary() {
       [`${withV.length.toLocaleString()} (${inView.length ? Math.round(100 * withV.length / inView.length) : 0}%)`,
        state.level === 'smart' ? 'with smart meter data' : 'with utilisation'],
       state.level === 'smart'
-        ? [withV.length ? Math.max(...withV.map(p => p[3])) + ' kW' : '–', 'highest secondary peak']
+        ? [withV.length ? withV.reduce((m, p) => Math.max(m, p[3]), 0) + ' kW' : '–', 'highest secondary peak']  // no spread: 100k+ args overflow
         : [withV.filter(p => p[2] > 100).length.toLocaleString(), 'over 100% utilised'],
       [new Set(inView.map(p => p[4])).size, 'operators in view'],
     ]);

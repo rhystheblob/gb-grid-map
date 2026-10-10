@@ -1,0 +1,40 @@
+{
+ "SSEN": {
+  "title": "Scottish and Southern Electricity Networks",
+  "licence": "SSEN open data (CC BY 4.0)",
+  "source": "https://data.ssen.co.uk/",
+  "counts": {
+   "gsp": 86,
+   "bsp": 102,
+   "primary": 831
+  },
+  "geometry": "polygons",
+  "updated": "2026-10-10",
+  "linked": "933/933"
+ },
+ "NGED": {
+  "title": "National Grid Electricity Distribution",
+  "licence": "NGED (WPD) Open Data Licence",
+  "source": "https://connecteddata.nationalgrid.co.uk/dataset/ltds-capacity-heatmap",
+  "counts": {
+   "bsp": 242,
+   "primary": 940
+  },
+  "geometry": "points",
+  "updated": "2026-10-10",
+  "linked": "835/1182"
+ },
+ "NPg": {
+  "title": "Northern Powergrid",
+  "licence": "Northern Powergrid Open Data Licence v1.0",
+  "source": "https://northernpowergrid.opendatasoft.com/explore/dataset/heatmapsubstationareas/",
+  "counts": {
+   "gsp": 41,
+   "bsp": 100,
+   "primary": 542
+  },
+  "geometry": "polygons",
+  "updated": "2026-10-10",
+  "linked": "642/642"
+ }
+}

@@ -1,0 +1,5 @@
+"""UKPN: adapter to be written once the portal API key is configured (see README)."""
+NAME = "UKPN"
+TITLE = ""
+LICENCE = ""
+SOURCE = ""

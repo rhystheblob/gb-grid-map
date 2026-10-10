@@ -1,13 +1,40 @@
-# SSEN Grid Capacity Map
+# GB Grid Capacity Map
 
-Interactive capacity map of SSEN's distribution network (GSP → BSP → Primary → Secondary → smart meter).
+Interactive capacity map of Great Britain's electricity distribution networks, built from each network operator's
+(DNO's) open data: GSP → BSP → Primary for every operator, plus Secondary → smart meter where available.
+
+Live map: https://rhystheblob.github.io/gb-grid-map/
 
 ```
-python3 fetch_public.py   # refresh public layers into data/
-python3 serve.py          # http://localhost:8765 (or use the hosted map below)
+python3 fetch_public.py   # SSEN layers (public ArcGIS)
+python3 build_gb.py       # all DNOs -> data/gb/ (common schema, see dnos/common.py)
+python3 serve.py          # http://localhost:8765
 ```
 
-## Data sources
+## GB operators
+
+| DNO | Licence areas | Source | Key needed | GSP / BSP / Primary | Geometry |
+|---|---|---|---|---|---|
+| SSEN | North Scotland, Southern England | data.ssen.co.uk + SSEN ArcGIS | `SSEN_API_KEY` (secondary only) | ✅ | supply areas |
+| NGED | E Midlands, W Midlands, S Wales, SW England | connecteddata.nationalgrid.co.uk `ltds-capacity-heatmap` | none (polygons: `NGED_API_KEY`) | BSP + Primary | site points |
+| Northern Powergrid | North East, Yorkshire | northernpowergrid.opendatasoft.com `heatmapsubstationareas` | none | ✅ | supply areas |
+| UKPN | London, East, South East | ukpowernetworks.opendatasoft.com | `UKPN_API_KEY` | pending key | |
+| ENWL | North West | electricitynorthwest.opendatasoft.com | `ENWL_API_KEY` | pending key | |
+| SPEN | Central/South Scotland, Merseyside & N Wales | spenergynetworks.opendatasoft.com | `SPEN_API_KEY` | pending key | |
+
+Northern Ireland (NIE Networks) is out of scope: no open-data API.
+
+`build_gb.py` normalises every operator to one schema modelled on the LTDS Capacity Heatmap (demand/generation
+headroom, firm capacity, max demand, RAG, limiting factor) and links each site to its parent (DNO ids where
+published, else the parent supply area that contains it, else name match). Output: `data/gb/<DNO>_<level>.geojson`,
+`data/gb/licence_areas.geojson`, `data/gb/manifest.json`. A DNO that fails, lacks its key, or shrinks by more than
+20% keeps its previous files. Opendatasoft keys go in the `Authorization: Apikey <key>` header; NGED's CKAN takes
+the raw token. Keys come from environment variables (cloud) or `.env` (local).
+
+Cloud network allowlist needs: `services8.arcgis.com`, `data-api.ssen.co.uk`, `*.r2.cloudflarestorage.com`,
+`connecteddata.nationalgrid.co.uk`, `*.opendatasoft.com`.
+
+## SSEN detail
 
 | Level | Source | Auth | Status |
 |---|---|---|---|
@@ -39,10 +66,11 @@ to SSEN-verified users; request verification from data@ssen.co.uk to automate it
 
 ## Hosting and weekly refresh
 
-The map is served by GitHub Pages from `main`: https://rhystheblob.github.io/ssen-grid-map/
+The map is served by GitHub Pages from `main`: https://rhystheblob.github.io/gb-grid-map/ (the old
+ssen-grid-map address redirects here).
 
-A Claude cloud routine ("SSEN grid map weekly refresh", Mondays 06:00 UTC) checks out this repo, runs
-`fetch_public.py` and `fetch_portal.py`, sanity-checks feature counts, and commits changed `data/` files, which
+A Claude cloud routine ("GB grid map weekly refresh", Mondays 06:00 UTC) checks out this repo, runs
+`fetch_public.py`, `fetch_portal.py --skip-smart-meter` and `build_gb.py`, sanity-checks feature counts, and commits changed `data/` files, which
 republishes the map. `SSEN_API_KEY` is set as an environment variable on the cloud environment, never in the repo.
 Manage the routine at https://claude.ai/code/routines/trig_01YYGzTxvU8BEPKmTShbzBgo
 

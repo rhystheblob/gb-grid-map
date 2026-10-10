@@ -1,0 +1,5 @@
+"""SPEN: adapter to be written once the portal API key is configured (see README)."""
+NAME = "SPEN"
+TITLE = ""
+LICENCE = ""
+SOURCE = ""

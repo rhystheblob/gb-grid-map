@@ -1,0 +1,5 @@
+"""ENWL: adapter to be written once the portal API key is configured (see README)."""
+NAME = "ENWL"
+TITLE = ""
+LICENCE = ""
+SOURCE = ""

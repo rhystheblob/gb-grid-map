@@ -112,6 +112,8 @@
     <div class="group">
       <div class="label">Overlays</div>
       <label class="chk"><input type="checkbox" id="showLicence" checked> Licence areas</label>
+      <label class="chk"><input type="checkbox" id="showLA"> Local authorities</label>
+      <select id="la" style="margin-top:4px"><option value="">Zoom to a local authority…</option></select>
     </div>
 
     <div class="group">
@@ -120,7 +122,7 @@
     </div>
 
     <div class="group">
-      <div class="label">In view</div>
+      <div class="label" id="statsLabel">In view</div>
       <div class="stats" id="stats"></div>
     </div>
 
@@ -144,14 +146,14 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
-  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when.',
+  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when. Pick a local authority (Overlays) to see only its streets and totals.',
   telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
-const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all' };
+const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all', la: null };
 const data = {};
 const map = L.map('map', { preferCanvas: true }).setView([54.8, -3.2], 6);
 const basemaps = {
@@ -166,6 +168,11 @@ basemaps['Light grey'].addTo(map);
 L.control.layers(basemaps, null, { position: 'topright' }).addTo(map);
 
 let areaLayer = null, licenceLayer = null, secLayers = null, secCleanup = null, manifest = {};
+let laLayer = null, laHighlight = null;
+// local authority outlines sit above every layer but never take clicks
+map.createPane('la');
+map.getPane('la').style.zIndex = 450;
+map.getPane('la').style.pointerEvents = 'none';
 
 const fmt = (v, u) => v == null || isNaN(v) ? '–' : `${(+v).toFixed(1)} ${u}`;
 const metricVal = (p, m) => m === 'dHead' ? p.dhead : p.ghead;
@@ -239,6 +246,7 @@ async function render(fit) {
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
   document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
+  document.getElementById('statsLabel').textContent = 'In view';
   renderCrumbs();
   renderLegend();
 
@@ -688,13 +696,22 @@ async function renderDigOnce(token) {
   if (token !== renderToken) return;
   if (!st && !s58) { renderStats(null, [['–', 'dig-once data not built yet']]); return; }
   renderLegend(); fillSearch([]);
-  const rows = st ? st.points : [], sectors = st ? st.sectors : [];  // [lon, lat, score, flags]; details per cell
+  const la = laFeature();
+  let rows = st ? st.points : [];  // [lon, lat, score, flags]; details per cell
+  const sectors = st ? st.sectors : [];
+  let s58Feats = s58 ? s58.features : [];
+  if (la) {
+    const lb = laBounds(la), inLa = (lon, lat) => lb.contains([lat, lon]) && inGeom(lon, lat, la.geometry);
+    rows = rows.filter(r => inLa(r[0], r[1]));
+    s58Feats = s58Feats.filter(f => { const c = L.geoJSON(f).getBounds().getCenter(); return inLa(c.lng, c.lat); });
+    document.getElementById('statsLabel').textContent = la.properties.name;
+  }
   const digCell = key => (data['dig_cell_' + key] ||= fetch(`data/gb/digonce/cells/${key}.json`).then(r => r.ok ? r.json() : []));
   const dots = new DotLayer(rows, r => smColour(r[2], DIG_BREAKS));
   const restrictions = L.layerGroup();
   let restrictionsShown = false;
   // bounding box per restriction, so only those in view are drawn
-  const s58Boxes = s58 ? s58.features.map(f => L.geoJSON(f).getBounds()) : [];
+  const s58Boxes = s58Feats.map(f => L.geoJSON(f).getBounds());
   const s58Layer = s58 ? L.geoJSON(null, {
     style: f => ({ color: S58_COL[f.properties.status], weight: f.properties.status === 'proposed' ? 5 : 3.5, opacity: 0.85,
                    fillOpacity: 0.25, dashArray: f.properties.status === 'proposed' ? '6 4' : null }),
@@ -706,9 +723,11 @@ async function renderDigOnce(token) {
       <div class="sources" style="margin-top:6px">Section 58, New Roads and Street Works Act 1991 · DfT Street Manager</div></div>`; }, { maxWidth: 360 }),
   }) : null;
   const update = () => {
-    const b = map.getBounds(), inView = rows.filter(r => b.contains([r[1], r[0]]));
-    const s58In = s58 ? s58.features.filter((f, i) => b.intersects(s58Boxes[i])) : [];
-    renderStats(null, [
+    // with a local authority selected, the stats cover the whole authority rather than the view
+    const b = map.getBounds(), inView = la ? rows : rows.filter(r => b.contains([r[1], r[0]]));
+    const s58In = s58Feats.filter((f, i) => la || b.intersects(s58Boxes[i]));
+    if (la && !la.properties.code.startsWith('E')) renderStats(null, [['–', 'dig-once data covers England only']]);
+    else renderStats(null, [
       [inView.length.toLocaleString(), 'streets with a dig-once signal'],
       [inView.filter(r => r[3] & 1).length.toLocaleString(), 'dug by 3+ utilities in a year'],
       [inView.filter(r => r[3] & 2).length.toLocaleString(), 'with utility works planned'],
@@ -716,7 +735,7 @@ async function renderDigOnce(token) {
     ]);
     const want = map.getZoom() >= 13 && s58Layer;
     if (want) {
-      s58Layer.clearLayers(); s58Layer.addData(s58In);
+      s58Layer.clearLayers(); s58Layer.addData(s58Feats.filter((f, i) => b.intersects(s58Boxes[i])));
       if (!restrictionsShown) { restrictions.addLayer(s58Layer); restrictions.addTo(map); restrictionsShown = true; }
     } else if (restrictionsShown) { map.removeLayer(restrictions); restrictions.clearLayers(); restrictionsShown = false; }
   };
@@ -872,6 +891,44 @@ document.getElementById('showLicence').addEventListener('change', async e => {
   licenceLayer = L.geoJSON(fc, { style: { color: '#0b6bcb', weight: 1.2, fill: false, dashArray: '4 3' }, interactive: false }).addTo(map);
 });
 
+// Local authorities: upper tier (county / unitary = highway authority), with dig-once counts per authority
+const laFeature = () => (state.la && data.la && data.la.features.find(f => f.properties.code === state.la)) || null;
+const laBounds = f => (f._bounds ||= L.geoJSON(f).getBounds());
+function inRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function inGeom(x, y, g) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  return polys.some(p => inRing(x, y, p[0]) && !p.slice(1).some(h => inRing(x, y, h)));
+}
+function fillLaSelect(fc) {
+  document.getElementById('la').insertAdjacentHTML('beforeend', fc.features.map(({ properties: p }) =>
+    `<option value="${p.code}">${p.name}${p.streets ? ` · ${p.streets.toLocaleString()} dig-once streets` : ''}</option>`).join(''));
+}
+document.getElementById('showLA').addEventListener('change', async e => {
+  if (laLayer) { map.removeLayer(laLayer); laLayer = null; }
+  if (!e.target.checked) return;
+  const fc = await load('la', 'data/gb/la.geojson');
+  if (fc && e.target.checked) laLayer = L.geoJSON(fc, { pane: 'la', interactive: false,
+    style: { color: '#6a3d9a', weight: 1, opacity: 0.7, fill: false } }).addTo(map);
+});
+document.getElementById('la').addEventListener('change', async e => {
+  state.la = e.target.value || null;
+  if (laHighlight) { map.removeLayer(laHighlight); laHighlight = null; }
+  const f = laFeature();
+  if (f) {
+    laHighlight = L.geoJSON(f, { pane: 'la', interactive: false,
+      style: { color: '#6a3d9a', weight: 3, fillColor: '#6a3d9a', fillOpacity: 0.05 } }).addTo(map);
+    map.fitBounds(laBounds(f), { padding: [20, 20] });
+  }
+  if (state.level === 'digonce') render(false);
+});
+
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
   render(!['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level));
@@ -883,6 +940,7 @@ document.getElementById('dno').addEventListener('change', e => {
     .filter(([, m]) => m.counts).map(([d, m]) => `<option value="${d}">${m.title} (${d})</option>`).join(''));
   document.getElementById('showLicence').dispatchEvent(new Event('change'));
   render(true);
+  load('la', 'data/gb/la.geojson').then(fc => fc && fillLaSelect(fc));
 })();
 </script>
 </body>

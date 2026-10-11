@@ -135,6 +135,17 @@ Outputs: `data/gb/digonce/s58.geojson`, `streets.json` (overview points), `cells
 Refresh monthly (new archive month); not part of the weekly cloud run because the 12-month window needs the local
 works summary. Scotland uses the Scottish Road Works Register, not covered.
 
+## Local authorities (`build_gb_boundaries.py`)
+
+Overlay of the 207 GB upper-tier councils (counties and unitary authorities: in England the highway authorities
+that permit street works and issue Section 58 restrictions; every Scottish and Welsh council is unitary), from the
+ONS "Counties and Unitary Authorities (December 2025) Boundaries UK BGC" service (public, Open Government Licence;
+Northern Ireland dropped). Each authority carries its dig-once totals (streets with a signal, dug by 3+ utilities,
+works planned, Section 58 proposed / in force, top score), counted by point-in-polygon, so **run it after
+`build_gb_digonce.py`**. On the map: Overlays → "Local authorities" draws the boundaries; the "Zoom to a local
+authority" list zooms to one and, on the Dig once layer, shows only that authority's streets with its totals.
+Output: `data/gb/la.geojson` (~8 MB).
+
 ## Weekly cloud refresh: GB build steps
 
 Run after the SSEN steps. All are public sources, so they work in the cloud with no keys:

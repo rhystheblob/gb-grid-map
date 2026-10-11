@@ -67,7 +67,7 @@
 <div id="app">
   <aside>
     <h1>GB Grid Capacity Map</h1>
-    <div class="sub">Electricity capacity, gas mains and water works across Great Britain · from each network operator's open data</div>
+    <div class="sub">Electricity capacity, gas mains, water works and broadband build across Great Britain · from open data</div>
 
     <div class="group">
       <div class="label">Network operator</div>
@@ -84,6 +84,7 @@
         <button data-level="smart">Smart meter</button>
         <button data-level="gas">Gas mains</button>
         <button data-level="water">Water</button>
+        <button data-level="telecoms">Telecoms</button>
       </div>
     </div>
 
@@ -142,6 +143,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
+  telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
@@ -233,7 +235,7 @@ async function render(fit) {
   document.querySelectorAll('#levels button').forEach(b => b.classList.toggle('on', b.dataset.level === state.level));
   document.querySelectorAll('#metrics button').forEach(b => b.classList.toggle('on', b.dataset.metric === state.metric));
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
-  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water'].includes(state.level) ? 'none' : '';
+  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
   renderCrumbs();
   renderLegend();
@@ -241,6 +243,7 @@ async function render(fit) {
   if (state.level === 'secondary' || state.level === 'smart') return renderSecondary(token);
   if (state.level === 'gas') return renderGas(token);
   if (state.level === 'water') return renderWater(token);
+  if (state.level === 'telecoms') return renderTelecoms(token);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
@@ -289,7 +292,7 @@ const SEC_SCALE = {
 
 // Canvas dot layer: GB has ~475k secondaries, far too many for individual Leaflet markers.
 const DotLayer = L.Layer.extend({
-  initialize(points, colourOf) { this._pts = points; this._colourOf = colourOf; },
+  initialize(points, colourOf, opts) { this._pts = points; this._colourOf = colourOf; this._opts = opts || {}; },
   onAdd(map) {
     this._map = map;
     this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide');
@@ -303,7 +306,7 @@ const DotLayer = L.Layer.extend({
     c.width = size.x * dpr; c.height = size.y * dpr; c.style.width = size.x + 'px'; c.style.height = size.y + 'px';
     L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
     const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
-    const b = map.getBounds().pad(0.05), z = map.getZoom(), r = z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : 3.2;
+    const b = map.getBounds().pad(0.05), z = map.getZoom(), r = (this._opts.scale || 1) * (z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : 3.2);
     const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
     const grey = [], byColour = {};
     for (const p of this._pts) {
@@ -317,7 +320,9 @@ const DotLayer = L.Layer.extend({
       ctx.fill();
     };
     draw(grey, getCss('--grey'), 0.3);                         // no data underneath
-    SM_RAMP.forEach(col => byColour[col] && draw(byColour[col], col, 0.9));  // low → high so hot spots sit on top
+    // ramp colours low → high so hot spots sit on top; any other colour (e.g. a single-colour layer) after them
+    Object.keys(byColour).sort((a, b) => (SM_RAMP.indexOf(a) + 1 || 99) - (SM_RAMP.indexOf(b) + 1 || 99))
+      .forEach(col => draw(byColour[col], col, this._opts.alpha || 0.9));
   },
 });
 
@@ -588,6 +593,65 @@ async function renderWater(token) {
   update();
 }
 
+const GIG_PURPLE = '#7b2cbf';
+const GIG_BREAKS = [0, 10, 25, 50];  // % of premises without gigabit
+
+async function renderTelecoms(token) {
+  const [oa, gig] = await Promise.all([
+    load('tel_oa', 'data/gb/telecoms/oa.json').catch(() => null),
+    load('tel_gig', 'data/gb/telecoms/gigabit.json').catch(() => null)]);
+  if (token !== renderToken) return;
+  if (!oa) { renderStats(null, [['–', 'telecoms data not built yet']]); return; }
+  renderLegend(); fillSearch([]);
+  const oaDots = new DotLayer(oa, p => p[2] < 0 ? null : p[2] <= GIG_BREAKS[0] ? SM_RAMP[0] : smColour(p[2], GIG_BREAKS));
+  const gpc = gig ? gig.postcodes : [];
+  const gigDots = new DotLayer(gpc, () => GIG_PURPLE, { scale: 0.7, alpha: 0.5 });
+  const update = () => {
+    const b = map.getBounds(), inB = p => b.contains([p[1], p[0]]);
+    let prem = 0, without = 0, inContract = 0, deferred = 0;
+    for (const p of oa) if (inB(p)) { prem += p[4]; without += p[3]; }
+    const pcs = gpc.filter(inB);
+    for (const p of pcs) { inContract += p[2]; deferred += p[3]; }
+    renderStats(null, [
+      [without.toLocaleString(), `premises without gigabit (${prem ? Math.round(100 * without / prem) : 0}%)`],
+      [prem.toLocaleString(), 'premises in view'],
+      [inContract.toLocaleString(), 'premises in Project Gigabit contracts'],
+      [new Set(pcs.map(p => p[6])).size, 'Project Gigabit contracts'],
+    ]);
+  };
+  const onClick = e => {
+    const c = map.latLngToContainerPoint(e.latlng);
+    const nearest = arr => {
+      let best = null, bd = 64;
+      for (const p of arr) {
+        if (Math.abs(p[1] - e.latlng.lat) > 0.2 || Math.abs(p[0] - e.latlng.lng) > 0.3) continue;
+        const q = map.latLngToContainerPoint([p[1], p[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
+        if (d < bd) { bd = d; best = p; }
+      }
+      return best;
+    };
+    const g = map.hasLayer(gigDots) ? nearest(gpc) : null, o = g ? null : nearest(oa);
+    if (g) {
+      L.popup({ maxWidth: 340 }).setLatLng([g[1], g[0]]).setContent(`<div class="pop"><h3>Project Gigabit · ${g[7]}</h3>
+        <table><tr><td>Premises in contract</td><td>${g[2]}${g[3] ? ` (${g[3]} deferred)` : ''}</td></tr>
+        <tr><td>Contract</td><td>${gig.contracts[g[6]] || '–'}</td></tr>
+        <tr><td>Supplier</td><td>${gig.suppliers[g[5]] || '–'}</td></tr>
+        <tr><td>Final coverage date</td><td>${g[4] > 0 ? g[4] : '–'}</td></tr></table>
+        <div class="sources" style="margin-top:6px">Source: <a href="https://www.gov.uk/government/publications/premises-in-bduk-plans-england-and-wales" target="_blank" rel="noopener">Premises in BDUK plans</a> (May 2026)</div></div>`).openOn(map);
+    } else if (o) {
+      L.popup({ maxWidth: 320 }).setLatLng([o[1], o[0]]).setContent(`<div class="pop"><h3>Census output area</h3>
+        <table><tr><td>Premises</td><td>${o[4]}</td></tr>
+        <tr><td>Without gigabit</td><td>${o[3]} (${o[2] < 0 ? '–' : o[2] + '%'})</td></tr></table>
+        <div class="sources" style="margin-top:6px">Source: <a href="https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds/connected-nations-update-spring-2026" target="_blank" rel="noopener">Ofcom Connected Nations</a>, Jan 2026</div></div>`).openOn(map);
+    }
+  };
+  oaDots.addTo(map); gigDots.addTo(map);
+  document.getElementById('showGig').addEventListener('change', e => e.target.checked ? gigDots.addTo(map) : map.removeLayer(gigDots));
+  map.on('moveend', update); map.on('click', onClick);
+  secCleanup = () => { map.off('moveend', update); map.off('click', onClick); map.removeLayer(oaDots); map.removeLayer(gigDots); };
+  update();
+}
+
 function renderStats(props, custom) {
   const el = document.getElementById('stats');
   if (custom) { el.innerHTML = custom.map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join(''); return; }
@@ -608,6 +672,13 @@ function renderStats(props, custom) {
 
 function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
+  if (state.level === 'telecoms') {
+    el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
+      <div class="ramp-l"><span>all gigabit</span><span>25%</span><span>50%+ without</span></div>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="showGig" checked><span class="sw" style="background:${GIG_PURPLE}"></span>Project Gigabit build contracted</label>
+      <div class="note" style="margin-top:6px">Dots: census output areas, coloured by share of premises without gigabit-capable broadband.</div>`;
+    return;
+  }
   if (state.level === 'water') {
     el.innerHTML = `<div class="legend">${WATER_BANDS.map(b => `<div><span class="sw" style="background:${b.c}"></span>${b.n}</div>`).join('')}</div>
       <div class="note" style="margin-top:6px">Storm overflow improvement works planned (National Storm Overflows Plan). Outlines: water company areas.</div>`;
@@ -682,7 +753,7 @@ document.getElementById('levels').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const lvl = b.dataset.level;
   // network-wide secondary view keeps the current map position; drilling from a primary still scopes it
-  if (['secondary', 'smart', 'gas', 'water'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
+  if (['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
   state.level = lvl; state.filter = null; state.trail = []; render(true);
 });
 document.getElementById('metrics').addEventListener('click', e => {
@@ -707,7 +778,7 @@ document.getElementById('showLicence').addEventListener('change', async e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  render(!['secondary', 'smart', 'gas', 'water'].includes(state.level));
+  render(!['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(state.level));
 });
 
 (async () => {

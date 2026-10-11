@@ -95,6 +95,27 @@ invitation-only (asset owners, local and highways authorities). Open via the ind
   year improvement works (storage, larger sewers, i.e. excavation) are planned: 4,823 by 2030, 1,943 in 2031-35,
   5,509 in 2036-50; 1,908 already meet targets.
 
+## Telecoms (`build_gb_telecoms.py`)
+
+Telecoms networks (Openreach ducts/poles, altnet routes) aren't open data (NUAR holds them, invitation-only).
+Open signals of where fibre still has to be dug in:
+
+- **Ofcom Connected Nations** (Jan 2026, OGL): gigabit availability for all 235,098 GB census output areas, placed
+  at ONS 2021 (E&W) / NRS 2022 (Scotland) population-weighted centroids. 3.93M of 31.6M premises (12.4%) lack
+  gigabit-capable broadband.
+- **Premises in BDUK plans** (May 2026, OGL): Project Gigabit's subsidised build: 805,662 premises in 96,196
+  postcodes across 36 contracts (England and Wales), with supplier and final coverage date (2025-2032), placed via
+  OS Code-Point Open. `--fetch-bduk` streams the ~390 MB of regional zips and keeps only the postcode summary.
+
+Inputs in `data/raw/telecoms/` (Ofcom zip, centroids, Code-Point). Ofcom and BDUK update a few times a year, so
+this is refreshed by hand rather than weekly.
+
+## Next: dig-once
+
+DfT Street Manager open data (England) publishes monthly archives of every street works permit from all utilities
+(`opendata.manage-roadworks.service.gov.uk/permit/YYYY/MM.zip`, ~1 GB/month) and Section 58 restrictions
+(`section_58/YYYY/MM.zip`, ~3 MB/month: roads barred from new works for up to 5 years after resurfacing).
+
 ## Weekly cloud refresh: GB build steps
 
 Run after the SSEN steps. All are public sources, so they work in the cloud with no keys:

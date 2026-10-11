@@ -67,7 +67,7 @@
 <div id="app">
   <aside>
     <h1>GB Grid Capacity Map</h1>
-    <div class="sub">Electricity distribution capacity and gas mains across Great Britain · from each network operator's open data</div>
+    <div class="sub">Electricity capacity, gas mains and water works across Great Britain · from each network operator's open data</div>
 
     <div class="group">
       <div class="label">Network operator</div>
@@ -83,6 +83,7 @@
         <button data-level="secondary">Secondary</button>
         <button data-level="smart">Smart meter</button>
         <button data-level="gas">Gas mains</button>
+        <button data-level="water">Water</button>
       </div>
     </div>
 
@@ -141,6 +142,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
+  water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
@@ -231,13 +233,14 @@ async function render(fit) {
   document.querySelectorAll('#levels button').forEach(b => b.classList.toggle('on', b.dataset.level === state.level));
   document.querySelectorAll('#metrics button').forEach(b => b.classList.toggle('on', b.dataset.metric === state.metric));
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
-  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas'].includes(state.level) ? 'none' : '';
+  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
   renderCrumbs();
   renderLegend();
 
   if (state.level === 'secondary' || state.level === 'smart') return renderSecondary(token);
   if (state.level === 'gas') return renderGas(token);
+  if (state.level === 'water') return renderWater(token);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
@@ -527,6 +530,64 @@ async function renderGas(token) {
   update();
 }
 
+const WATER_BANDS = [
+  { n: 'Works planned by 2030', c: '#d64545', test: p => p.planned && p.planned <= 2030 },
+  { n: 'Works planned 2031–2035', c: '#e8833a', test: p => p.planned > 2030 && p.planned <= 2035 },
+  { n: 'Works planned 2036–2050', c: '#e0c200', test: p => p.planned > 2035 },
+  { n: 'Already meets targets', c: '#2e9d5b', test: p => p.meets },
+];
+const waterBand = p => WATER_BANDS.find(b => b.test(p));
+
+function waterPopup(p) {
+  const sp = p.spills || {};
+  const rows = [
+    ['Company', p.company || '–'], ['Local authority', p.la || '–'], ['Receiving water', p.water || '–'],
+    ['Improvement works', p.meets ? 'None needed: already meets targets' : p.planned ? `Planned by ${p.planned}` : '–'],
+    ['Works', p.works || '–'],
+    ['Spills (EDM)', ['2020', '2021', '2022'].filter(y => sp[y] != null).map(y => `${y}: ${sp[y]}`).join(' · ') || '–'],
+    ['Spills after works', p.after != null ? `${p.after} a year (predicted)` : '–'],
+  ];
+  return `<div class="pop"><h3>${p.site || 'Storm overflow'}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">Storm overflow · ${p.id || ''}</div>
+    <table>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
+    <div class="sources" style="margin-top:6px">Source: National Storm Overflows Plan via <a href="https://www.streamwaterdata.co.uk/" target="_blank" rel="noopener">Stream</a></div></div>`;
+}
+
+async function renderWater(token) {
+  const [areas, ovf] = await Promise.all([
+    load('water_areas', 'data/gb/water/areas.geojson').catch(() => null),
+    load('water_ovf', 'data/gb/water/overflows.geojson').catch(() => null)]);
+  if (token !== renderToken) return;
+  if (!ovf) { renderStats(null, [['–', 'water data not built yet']]); return; }
+  renderLegend(); fillSearch(ovf.features.map(f => f.properties.site).filter(Boolean));
+  const outline = areas ? L.geoJSON(areas, {
+    style: f => ({ color: '#0b6bcb', weight: f.properties.code && ['IWN', 'LEP', 'ICW'].includes(f.properties.code) ? 0.6 : 1.4, fill: false }),
+    onEachFeature: (f, l) => l.bindTooltip(`${f.properties.company}${f.properties.area ? ' · ' + f.properties.area : ''}`, { sticky: true }),
+  }) : null;
+  const points = L.geoJSON(ovf, {
+    pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, color: '#ffffff', weight: 0.6,
+      fillColor: (waterBand(f.properties) || { c: '#9aa4b1' }).c, fillOpacity: 0.9 }),
+    onEachFeature: (f, l) => { l.bindPopup(() => waterPopup(f.properties), { maxWidth: 360 }); l.bindTooltip(f.properties.site || 'Storm overflow'); },
+  });
+  areaLayer = points;  // lets the search box find overflows by site name
+  const update = () => {
+    const b = map.getBounds();
+    const inView = ovf.features.filter(f => b.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]])).map(f => f.properties);
+    const n = t => inView.filter(t).length;
+    renderStats(null, [
+      [inView.length.toLocaleString(), 'storm overflows in view'],
+      [n(WATER_BANDS[0].test).toLocaleString(), 'works planned by 2030'],
+      [n(WATER_BANDS[1].test).toLocaleString(), 'works planned 2031–2035'],
+      [new Set(inView.map(p => p.company)).size, 'water companies'],
+    ]);
+  };
+  if (outline) outline.addTo(map);
+  points.addTo(map);
+  map.on('moveend', update);
+  secCleanup = () => { map.off('moveend', update); map.removeLayer(points); if (outline) map.removeLayer(outline); areaLayer = null; };
+  update();
+}
+
 function renderStats(props, custom) {
   const el = document.getElementById('stats');
   if (custom) { el.innerHTML = custom.map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join(''); return; }
@@ -547,6 +608,11 @@ function renderStats(props, custom) {
 
 function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
+  if (state.level === 'water') {
+    el.innerHTML = `<div class="legend">${WATER_BANDS.map(b => `<div><span class="sw" style="background:${b.c}"></span>${b.n}</div>`).join('')}</div>
+      <div class="note" style="margin-top:6px">Storm overflow improvement works planned (National Storm Overflows Plan). Outlines: water company areas.</div>`;
+    return;
+  }
   if (state.level === 'gas') {
     el.innerHTML = `<div class="legend">${Object.entries(GAS_MAT).map(([k, m]) =>
       `<div><span class="sw" style="background:${m.c}"></span>${m.n}</div>`).join('')}
@@ -616,7 +682,7 @@ document.getElementById('levels').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const lvl = b.dataset.level;
   // network-wide secondary view keeps the current map position; drilling from a primary still scopes it
-  if (['secondary', 'smart', 'gas'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
+  if (['secondary', 'smart', 'gas', 'water'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
   state.level = lvl; state.filter = null; state.trail = []; render(true);
 });
 document.getElementById('metrics').addEventListener('click', e => {
@@ -641,7 +707,7 @@ document.getElementById('showLicence').addEventListener('change', async e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  render(!['secondary', 'smart', 'gas'].includes(state.level));
+  render(!['secondary', 'smart', 'gas', 'water'].includes(state.level));
 });
 
 (async () => {

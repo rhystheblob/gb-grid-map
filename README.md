@@ -84,6 +84,31 @@ highlighted. Planning use only, not for excavation (LinesearchbeforeUdig).
 
 Outputs: `data/gb/gas/grid.json` (km per ~10 km cell), `data/gb/gas/<GDN>/<cell>.geojson`, `areas.geojson`.
 
+## Water (`build_gb_water.py`)
+
+Water companies don't publish their pipe networks openly; the national register of buried pipes (NUAR) is
+invitation-only (asset owners, local and highways authorities). Open via the industry's Stream portal
+(streamwaterdata.co.uk, public ArcGIS services, no login):
+
+- **Water company areas**: 432 supply areas incl. inset networks (Stream "Water Company Boundaries").
+- **Storm overflow improvements**: all 14,187 overflows in the National Storm Overflows Plan for England, with the
+  year improvement works (storage, larger sewers, i.e. excavation) are planned: 4,823 by 2030, 1,943 in 2031-35,
+  5,509 in 2036-50; 1,908 already meet targets.
+
+## Weekly cloud refresh: GB build steps
+
+Run after the SSEN steps. All are public sources, so they work in the cloud with no keys:
+
+```
+python3 build_gb.py              # DNO capacity layers; login-only operators keep their snapshot
+python3 build_gb_gas.py --fetch-sgn   # SGN mains (public ArcGIS); Cadent/NGN inputs are local-only, kept as committed
+python3 build_gb_water.py        # water areas + storm overflow plan (Stream)
+```
+
+Sanity checks before committing: `data/gb/gas/index.json` SGN `pipes` and `data/gb/water/overflows.geojson`
+feature count should not drop by more than 20% from the committed versions. Cloud allowlist additionally needs
+`services-eu1.arcgis.com` and `open-data-sharing-portal-sgn-uk.hub.arcgis.com`.
+
 Northern Ireland (NIE Networks) is out of scope: no open-data API.
 
 `build_gb.py` normalises every operator to one schema modelled on the LTDS Capacity Heatmap (demand/generation

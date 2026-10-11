@@ -67,7 +67,7 @@
 <div id="app">
   <aside>
     <h1>GB Grid Capacity Map</h1>
-    <div class="sub">Electricity capacity, gas mains, water works and broadband build across Great Britain · from open data</div>
+    <div class="sub">Electricity capacity, gas mains, water works and broadband build, and dig-once opportunities across Great Britain · from open data</div>
 
     <div class="group">
       <div class="label">Network operator</div>
@@ -85,6 +85,7 @@
         <button data-level="gas">Gas mains</button>
         <button data-level="water">Water</button>
         <button data-level="telecoms">Telecoms</button>
+        <button data-level="digonce">Dig once</button>
       </div>
     </div>
 
@@ -143,6 +144,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
+  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when.',
   telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
@@ -235,7 +237,7 @@ async function render(fit) {
   document.querySelectorAll('#levels button').forEach(b => b.classList.toggle('on', b.dataset.level === state.level));
   document.querySelectorAll('#metrics button').forEach(b => b.classList.toggle('on', b.dataset.metric === state.metric));
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
-  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(state.level) ? 'none' : '';
+  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
   renderCrumbs();
   renderLegend();
@@ -244,6 +246,7 @@ async function render(fit) {
   if (state.level === 'gas') return renderGas(token);
   if (state.level === 'water') return renderWater(token);
   if (state.level === 'telecoms') return renderTelecoms(token);
+  if (state.level === 'digonce') return renderDigOnce(token);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
@@ -652,6 +655,90 @@ async function renderTelecoms(token) {
   update();
 }
 
+const S58_COL = { proposed: '#e8833a', in_force: '#6b7a8c' };
+const DIG_BREAKS = [2, 4, 6, 9];
+const SECTOR_LABEL = { electricity: 'Electricity', gas: 'Gas', water: 'Water', telecoms: 'Telecoms', highway: 'Highway authority', other: 'Other' };
+
+function digPopup(r, sectors) {
+  const [lon, lat, score, past, next, nProm, collab, firstNext, restriction, usrn, street, town, ha, x] = r;
+  const ctx = x || {};
+  const nearby = [
+    ctx.gas_mrp ? 'Gas: metallic main in a replacement programme' : ctx.gas_km ? `Gas: ~${ctx.gas_km} km of metallic main` : null,
+    ctx.ovf ? `Water: storm overflow works planned by ${ctx.ovf}` : null,
+    ctx.hot_sec ? `Electricity: ${ctx.hot_sec} secondary substation${ctx.hot_sec > 1 ? 's' : ''} over 100% utilised` : null,
+    ctx.pg ? `Telecoms: Project Gigabit build due by ${ctx.pg}` : (ctx.nogig >= 25 ? `Telecoms: ${ctx.nogig}% of premises without gigabit` : null),
+  ].filter(Boolean);
+  const list = arr => sectors.map((s, i) => arr[i] ? `${SECTOR_LABEL[s]} ${arr[i]}` : null).filter(Boolean).join(' · ') || 'none';
+  return `<div class="pop"><h3>${street || 'Street ' + usrn}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">${[town, ha].filter(Boolean).join(' · ')} · USRN ${usrn}</div>
+    <table><tr><td>Dig-once score</td><td><b>${score}</b></td></tr>
+    <tr><td>Works, last 12 months</td><td>${list(past)}</td></tr>
+    <tr><td>Works already planned</td><td>${list(next)}${firstNext ? ` (first from ${firstNext})` : ''}</td></tr>
+    <tr><td>Resurfacing restriction</td><td>${!restriction ? 'none proposed' : restriction >= new Date().toISOString().slice(0, 10)
+      ? `<b>proposed from ${restriction}</b>: dig before then` : `<b>proposed</b> (start given as ${restriction}; resurfacing still pending)`}</td></tr>
+    <tr><td>Organisations involved</td><td>${nProm}${collab ? ` · ${collab} works flagged collaborative` : ''}</td></tr>
+    <tr><td>Nearby on this map</td><td>${nearby.length ? nearby.join('<br>') : 'nothing flagged'}</td></tr></table>
+    <div class="sources" style="margin-top:6px">Source: <a href="https://www.gov.uk/guidance/find-and-use-roadworks-data" target="_blank" rel="noopener">DfT Street Manager</a> open data (England)</div></div>`;
+}
+
+async function renderDigOnce(token) {
+  const [st, s58] = await Promise.all([
+    load('dig_streets', 'data/gb/digonce/streets.json').catch(() => null),
+    load('dig_s58', 'data/gb/digonce/s58.geojson').catch(() => null)]);
+  if (token !== renderToken) return;
+  if (!st && !s58) { renderStats(null, [['–', 'dig-once data not built yet']]); return; }
+  renderLegend(); fillSearch([]);
+  const rows = st ? st.points : [], sectors = st ? st.sectors : [];  // [lon, lat, score, flags]; details per cell
+  const digCell = key => (data['dig_cell_' + key] ||= fetch(`data/gb/digonce/cells/${key}.json`).then(r => r.ok ? r.json() : []));
+  const dots = new DotLayer(rows, r => smColour(r[2], DIG_BREAKS));
+  const restrictions = L.layerGroup();
+  let restrictionsShown = false;
+  // bounding box per restriction, so only those in view are drawn
+  const s58Boxes = s58 ? s58.features.map(f => L.geoJSON(f).getBounds()) : [];
+  const s58Layer = s58 ? L.geoJSON(null, {
+    style: f => ({ color: S58_COL[f.properties.status], weight: f.properties.status === 'proposed' ? 5 : 3.5, opacity: 0.85,
+                   fillOpacity: 0.25, dashArray: f.properties.status === 'proposed' ? '6 4' : null }),
+    onEachFeature: (f, l) => l.bindPopup(() => { const p = f.properties; return `<div class="pop"><h3>${p.street || 'Section 58 restriction'}</h3>
+      <div style="color:#5f6b7a;margin-bottom:6px">${[p.town, p.ha].filter(Boolean).join(' · ')}</div>
+      <table><tr><td>Status</td><td>${p.status === 'proposed' ? '<b>Proposed</b>: utilities should dig before it starts' : 'In force: no new street works'}</td></tr>
+      <tr><td>Restriction</td><td>${p.start || '?'} to ${p.end || '?'} (${p.duration})</td></tr>
+      <tr><td>Extent</td><td>${p.extent || '–'}</td></tr><tr><td>Notice</td><td>${p.ref}</td></tr></table>
+      <div class="sources" style="margin-top:6px">Section 58, New Roads and Street Works Act 1991 · DfT Street Manager</div></div>`; }, { maxWidth: 360 }),
+  }) : null;
+  const update = () => {
+    const b = map.getBounds(), inView = rows.filter(r => b.contains([r[1], r[0]]));
+    const s58In = s58 ? s58.features.filter((f, i) => b.intersects(s58Boxes[i])) : [];
+    renderStats(null, [
+      [inView.length.toLocaleString(), 'streets with a dig-once signal'],
+      [inView.filter(r => r[3] & 1).length.toLocaleString(), 'dug by 3+ utilities in a year'],
+      [inView.filter(r => r[3] & 2).length.toLocaleString(), 'with utility works planned'],
+      [s58In.filter(f => f.properties.status === 'proposed').length.toLocaleString(), 'resurfacing restrictions proposed'],
+    ]);
+    const want = map.getZoom() >= 13 && s58Layer;
+    if (want) {
+      s58Layer.clearLayers(); s58Layer.addData(s58In);
+      if (!restrictionsShown) { restrictions.addLayer(s58Layer); restrictions.addTo(map); restrictionsShown = true; }
+    } else if (restrictionsShown) { map.removeLayer(restrictions); restrictions.clearLayers(); restrictionsShown = false; }
+  };
+  const onClick = async e => {
+    const c = map.latLngToContainerPoint(e.latlng);
+    let best = null, bd = 64;
+    for (const r of rows) {
+      if (Math.abs(r[1] - e.latlng.lat) > 0.2 || Math.abs(r[0] - e.latlng.lng) > 0.3) continue;
+      const q = map.latLngToContainerPoint([r[1], r[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
+      if (d < bd) { bd = d; best = r; }
+    }
+    if (!best) return;
+    const cell = await digCell(cellKey(best[0], best[1]));
+    const row = cell.find(r => r[0] === best[0] && r[1] === best[1]);
+    if (row) L.popup({ maxWidth: 380 }).setLatLng([best[1], best[0]]).setContent(digPopup(row, sectors)).openOn(map);
+  };
+  dots.addTo(map);
+  map.on('moveend', update); map.on('click', onClick);
+  secCleanup = () => { map.off('moveend', update); map.off('click', onClick); map.removeLayer(dots); map.removeLayer(restrictions); };
+  update();
+}
+
 function renderStats(props, custom) {
   const el = document.getElementById('stats');
   if (custom) { el.innerHTML = custom.map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join(''); return; }
@@ -672,6 +759,15 @@ function renderStats(props, custom) {
 
 function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
+  if (state.level === 'digonce') {
+    el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
+      <div class="ramp-l"><span>one signal</span><span>several</span><span>strong case</span></div>
+      <div class="legend" style="margin-top:6px">
+        <div><span class="sw" style="background:${S58_COL.proposed}"></span>Resurfacing restriction proposed: dig before it starts</div>
+        <div><span class="sw" style="background:${S58_COL.in_force}"></span>Restriction in force: no new works</div></div>
+      <div class="note" style="margin-top:6px">Score = utilities that dug the street in the last year + 2 × utilities with works planned + 3 if a restriction is proposed + nearby signals from the other layers (gas mains due for replacement, storm overflow works by 2030, overloaded secondary substations, missing gigabit or Project Gigabit build).</div>`;
+    return;
+  }
   if (state.level === 'telecoms') {
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
       <div class="ramp-l"><span>all gigabit</span><span>25%</span><span>50%+ without</span></div>
@@ -753,7 +849,7 @@ document.getElementById('levels').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const lvl = b.dataset.level;
   // network-wide secondary view keeps the current map position; drilling from a primary still scopes it
-  if (['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
+  if (['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
   state.level = lvl; state.filter = null; state.trail = []; render(true);
 });
 document.getElementById('metrics').addEventListener('click', e => {
@@ -778,7 +874,7 @@ document.getElementById('showLicence').addEventListener('change', async e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  render(!['secondary', 'smart', 'gas', 'water', 'telecoms'].includes(state.level));
+  render(!['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level));
 });
 
 (async () => {

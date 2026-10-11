@@ -110,11 +110,30 @@ Open signals of where fibre still has to be dug in:
 Inputs in `data/raw/telecoms/` (Ofcom zip, centroids, Code-Point). Ofcom and BDUK update a few times a year, so
 this is refreshed by hand rather than weekly.
 
-## Next: dig-once
+## Dig once (`build_gb_digonce.py`)
 
-DfT Street Manager open data (England) publishes monthly archives of every street works permit from all utilities
-(`opendata.manage-roadworks.service.gov.uk/permit/YYYY/MM.zip`, ~1 GB/month) and Section 58 restrictions
-(`section_58/YYYY/MM.zip`, ~3 MB/month: roads barred from new works for up to 5 years after resurfacing).
+Where street works could be coordinated, from the DfT Street Manager open data archive (England, OGL,
+`opendata.manage-roadworks.service.gov.uk`, public, no login). Many archive zips are published with a truncated
+central directory; `zip_entries()` reads entries from their local headers instead.
+
+- **Section 58 restrictions** (`section_58/YYYY/MM.zip`, from 2022): 70,659 notices; as of 2026-10-11, 23,895 in
+  force (no new street works for 6 months-3 years after resurfacing) and 9,516 proposed in the last year (the
+  window to dig before the restriction starts).
+- **Street works** (`permit/YYYY/MM.zip`, ~1 GB/month; `--fetch-permits` processes the last 12 months then deletes
+  them, keeping a 660 MB summary in `data/raw/streetworks/works.json`): 2.76M works on 501,189 streets. Promoters are
+  classed into electricity / gas / water / telecoms / highway (`dnos/sectors.py`, 99.8% classified).
+- **Per street (USRN)**: utilities that dug it in the last 12 months, utility works already planned, a proposed
+  restriction, plus nearby signals from the other layers (gas metallic mains / replacement programme within ~100 m,
+  storm overflow works by 2030 within ~500 m, secondaries over 100% within ~200 m, missing gigabit or Project
+  Gigabit build). 192,678 streets have a signal; 53,926 were dug by 3+ utilities in a year (12,276 by all four);
+  only ~1.4% of works are flagged collaborative.
+- Score = utilities that dug in the year + 2 x utilities with works planned + 3 if a restriction is proposed +
+  nearby signals (gas replacement programme 2, other gas metallic main 1, overflow works 1, overloaded secondary 1,
+  telecoms build 1).
+
+Outputs: `data/gb/digonce/s58.geojson`, `streets.json` (overview points), `cells/<cell>.json` (details).
+Refresh monthly (new archive month); not part of the weekly cloud run because the 12-month window needs the local
+works summary. Scotland uses the Scottish Road Works Register, not covered.
 
 ## Weekly cloud refresh: GB build steps
 

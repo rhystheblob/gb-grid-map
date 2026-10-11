@@ -7,6 +7,7 @@ mains replacement programme is replacing, plus the pipes each network has schedu
 
     Cadent  gas-pipe-infrastructure-gpi_open (metallic mains export) + MRP_Pipe_Infrastructure_<LA>_Open ids
             (Mains Replacement Programme), network areas. Login portal; exported via the owner's browser.
+    NGN     Live Distribution Mains GeoPackage per zone (login portal; downloaded by the owner), no programme.
 
 Inputs in data/raw/portals/ (git-ignored). Outputs:
 
@@ -19,6 +20,7 @@ Usage:  python3 build_gb_gas.py
 """
 import json
 import math
+import pathlib
 import re
 import shutil
 
@@ -82,7 +84,62 @@ def cadent():
                   "geometry": a["geometry"]} for a in areas]
 
 
-READERS = {"Cadent": cadent}
+METALLIC = {"CI", "SI", "DI", "ST"}
+
+
+def gpkg_lines(path, table):
+    """Rows of a GeoPackage line table (British National Grid) as (properties, WGS84 GeoJSON geometry).
+    GeoPackage geometry = 'GP' header (+ optional envelope) followed by standard WKB."""
+    import sqlite3
+    from pyproj import Transformer
+    from shapely import wkb
+    from shapely.geometry import mapping
+    from shapely.ops import transform
+    to_wgs84 = Transformer.from_crs(27700, 4326, always_xy=True).transform
+    con = sqlite3.connect(path)
+    cur = con.execute(f'SELECT * FROM "{table}"')
+    cols = [d[0] for d in cur.description]
+    geom_col = next(c for c in cols if c.lower() in ("shape", "geom", "geometry"))
+    for row in cur:
+        rec = dict(zip(cols, row))
+        blob = rec.pop(geom_col)
+        if not blob:
+            continue
+        env = {0: 0, 1: 32, 2: 48, 3: 48, 4: 64}[(blob[3] >> 1) & 0x07]
+        g = transform(to_wgs84, wkb.loads(bytes(blob[8 + env:])))
+        yield rec, mapping(g)
+    con.close()
+
+
+def ngn():
+    """Northern Gas Networks: Live Distribution Mains per zone (GeoPackage zips, CC BY 4.0, login portal), placed in
+    data/raw/portals/ngn/. Same interoperability schema as Cadent. NGN publishes no replacement programme."""
+    import glob
+    import zipfile
+    zips = sorted(glob.glob(str(RAW / "ngn" / "*.zip")))
+    if not zips:
+        raise FileNotFoundError(str(RAW / "ngn" / "*.zip"))
+    out, zones = [], []
+    for z in zips:
+        target = pathlib.Path(z).with_suffix("")
+        with zipfile.ZipFile(z) as zf:
+            zf.extractall(target)
+        for g in target.glob("*.gpkg"):
+            import sqlite3
+            table = sqlite3.connect(g).execute("SELECT table_name FROM gpkg_contents WHERE data_type='features'").fetchone()[0]
+            zones.append(table)
+            for rec, geom in gpkg_lines(g, table):
+                if rec.get("TYPE") != "Main Pipe" or rec.get("MATERIAL") not in METALLIC:
+                    continue
+                out.append({"geometry": geom,
+                            "props": {"gdn": "NGN", "id": rec.get("ASSET_ID"), "mat": rec.get("MATERIAL"),
+                                      "pr": rec.get("PRESSURE"), "dia": diameter_mm(rec.get("DIAMETER"), rec.get("DIAM_UNIT")),
+                                      "yr": year(rec.get("INST_DATE")), "mrp": None}})
+    print(f"  NGN zones: {', '.join(zones)}")
+    return out, []
+
+
+READERS = {"Cadent": cadent, "NGN": ngn}
 
 
 def main():

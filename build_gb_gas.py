@@ -8,6 +8,7 @@ mains replacement programme is replacing, plus the pipes each network has schedu
     Cadent  gas-pipe-infrastructure-gpi_open (metallic mains export) + MRP_Pipe_Infrastructure_<LA>_Open ids
             (Mains Replacement Programme), network areas. Login portal; exported via the owner's browser.
     NGN     Live Distribution Mains GeoPackage per zone (login portal; downloaded by the owner), no programme.
+    SGN     public ArcGIS service per local authority on SGN's open data hub (python3 build_gb_gas.py --fetch-sgn).
 
 Inputs in data/raw/portals/ (git-ignored). Outputs:
 
@@ -139,11 +140,77 @@ def ngn():
     return out, []
 
 
-READERS = {"Cadent": cadent, "NGN": ngn}
+SGN_HUB = "https://open-data-sharing-portal-sgn-uk.hub.arcgis.com/api/search/v1/collections/dataset/items"
+
+
+def fetch_sgn():
+    """SGN publishes a public ArcGIS feature service per local authority ('Distribution Pipe Network <LA>') on its
+    open data hub. Query each for metallic mains only and cache them (no login needed, so this also runs in the
+    cloud). Paced, since it is ~114 services."""
+    import time
+    import urllib.parse
+    import urllib.request
+
+    def get(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "gb-grid-map/1.0 (+https://github.com/rhystheblob/gb-grid-map)"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.load(r)
+
+    items, start = [], 1
+    while True:
+        page = get(f"{SGN_HUB}?limit=100&startindex={start}")
+        items += [f["properties"] for f in page["features"]]
+        if len(page["features"]) < 100:
+            break
+        start += 100
+    pipes = [i for i in items if i["title"].startswith("Distribution Pipe Network")]
+    where = "TYPE='Main Pipe' AND MATERIAL IN ('CI','SI','DI','ST')"
+    feats = []
+    for i, item in enumerate(pipes, 1):
+        la = item["title"].replace("Distribution Pipe Network", "").strip()
+        offset = 0
+        while True:
+            q = urllib.parse.urlencode({"where": where, "outFields": "ASSET_ID,MATERIAL,PRESSURE,DIAMETER,DIAM_UNIT,INST_DATE",
+                                        "outSR": 4326, "f": "geojson", "resultOffset": offset, "resultRecordCount": 2000})
+            page = get(f"{item['url']}/0/query?{q}")
+            for f in page.get("features", []):
+                f["properties"]["LA"] = la
+            feats += page.get("features", [])
+            if not page.get("properties", {}).get("exceededTransferLimit") and len(page.get("features", [])) < 2000:
+                break
+            offset += 2000
+            time.sleep(0.3)
+        print(f"  SGN {i}/{len(pipes)} {la}: {len(feats)} metallic mains so far", flush=True)
+        time.sleep(0.3)
+    regulatory = next((i for i in items if i["title"].strip() == "SGN Regulatory Boundary"), None)
+    areas = get(f"{regulatory['url']}/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson") if regulatory else None
+    (RAW / "sgn_metallic_mains.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats,
+                                                                "areas": areas}))
+
+
+def sgn():
+    """SGN (Scotland, Southern England): metallic mains cached by fetch_sgn() (python3 build_gb_gas.py --fetch-sgn).
+    SGN's catalogue lists no replacement programme dataset."""
+    data = json.loads((RAW / "sgn_metallic_mains.geojson").read_text())
+    out = [{"geometry": f["geometry"],
+            "props": {"gdn": "SGN", "id": p.get("ASSET_ID"), "mat": p.get("MATERIAL"), "pr": p.get("PRESSURE"),
+                      "dia": diameter_mm(p.get("DIAMETER"), p.get("DIAM_UNIT")), "yr": year(p.get("INST_DATE")),
+                      "mrp": None}}
+           for f in data["features"] for p in [f["properties"]]]
+    areas = [{"type": "Feature", "properties": {"gdn": "SGN", "name": "SGN"}, "geometry": a["geometry"]}
+             for a in (data.get("areas") or {}).get("features", []) if a.get("geometry")]
+    return out, areas
+
+
+READERS = {"Cadent": cadent, "NGN": ngn, "SGN": sgn}
 
 
 def main():
     from shapely.geometry import LineString, mapping
+
+    import sys
+    if "--fetch-sgn" in sys.argv:
+        fetch_sgn()
 
     OUT.mkdir(parents=True, exist_ok=True)
     index_path = OUT / "index.json"

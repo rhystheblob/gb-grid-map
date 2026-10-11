@@ -67,6 +67,23 @@ as SSEN (14 and 21 Jan 2026) so operators share the same weather:
 Peaks averaging over 10 kW per meter are treated as bad readings and dropped (~0.05%). Output:
 `data/raw/smart/<DNO>.json`, joined by `build_gb_secondary.py` (by substation id; NPg by SPID, else nearest site).
 
+## Gas distribution (`build_gb_gas.py`)
+
+The gas networks publish low/medium-pressure pipes in the UK Gas Network Data Interoperability Standard. Full
+networks run to millions of pipe sections (Cadent alone: 2.28M), too much for this static site, so the map shows
+**metallic mains** (cast, spun and ductile iron, steel), the pipes the iron mains replacement programme is
+removing and so the likeliest to be dug up soon, with pipes in each network's published replacement programme
+highlighted. Planning use only, not for excavation (LinesearchbeforeUdig).
+
+| GDN | Area | Status | Source (access) |
+|---|---|---|---|
+| Cadent | NW England, W Midlands, E England, N London | 309,943 metallic main sections, 19,493 km; 5,316 km in the Mains Replacement Programme | `gas-pipe-infrastructure-gpi_open` (metallic mains filter) + 65 `MRP_Pipe_Infrastructure_<LA>_Open` (login) |
+| Northern Gas Networks | North East, Yorkshire, Cumbria | pending download | Live Distribution Mains per zone, GeoPackage (login) |
+| SGN | Scotland, Southern England | pending access link | Distribution Pipe Network per local authority (registration) |
+| Wales & West Utilities | Wales, SW England | no pipe data published yet | network boundary, LTDS workbook |
+
+Outputs: `data/gb/gas/grid.json` (km per ~10 km cell), `data/gb/gas/<GDN>/<cell>.geojson`, `areas.geojson`.
+
 Northern Ireland (NIE Networks) is out of scope: no open-data API.
 
 `build_gb.py` normalises every operator to one schema modelled on the LTDS Capacity Heatmap (demand/generation

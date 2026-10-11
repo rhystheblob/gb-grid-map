@@ -67,7 +67,7 @@
 <div id="app">
   <aside>
     <h1>GB Grid Capacity Map</h1>
-    <div class="sub">Electricity distribution headroom across Great Britain · from each network operator's open data</div>
+    <div class="sub">Electricity distribution capacity and gas mains across Great Britain · from each network operator's open data</div>
 
     <div class="group">
       <div class="label">Network operator</div>
@@ -82,6 +82,7 @@
         <button data-level="primary">Primary</button>
         <button data-level="secondary">Secondary</button>
         <button data-level="smart">Smart meter</button>
+        <button data-level="gas">Gas mains</button>
       </div>
     </div>
 
@@ -140,6 +141,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
+  gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent so far; other gas networks to follow.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
@@ -229,12 +231,13 @@ async function render(fit) {
   document.querySelectorAll('#levels button').forEach(b => b.classList.toggle('on', b.dataset.level === state.level));
   document.querySelectorAll('#metrics button').forEach(b => b.classList.toggle('on', b.dataset.metric === state.metric));
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
-  document.getElementById('metrics').parentElement.style.display = (state.level === 'secondary' || state.level === 'smart') ? 'none' : '';
+  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
   renderCrumbs();
   renderLegend();
 
   if (state.level === 'secondary' || state.level === 'smart') return renderSecondary(token);
+  if (state.level === 'gas') return renderGas(token);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
@@ -442,6 +445,88 @@ async function renderSecondary(token) {
   update();
 }
 
+const GAS_MAT = {
+  CI: { n: 'Cast iron', c: '#c0392b' }, SI: { n: 'Spun iron', c: '#e67e22' },
+  DI: { n: 'Ductile iron', c: '#d4ac0d' }, ST: { n: 'Steel', c: '#6c5ce7' },
+};
+const GAS_POLY_ZOOM = 13;
+const gasCellCache = {};
+const gasCell = (gdn, key) => gasCellCache[gdn + key] ||= fetch(`data/gb/gas/${gdn}/${key}.geojson`).then(r => r.ok ? r.json() : null);
+
+function gasPopup(p) {
+  const m = GAS_MAT[p.mat] || { n: p.mat };
+  return `<div class="pop"><h3>${m.n} gas main</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">${p.gdn} · ${p.pr === 'LP' ? 'low' : p.pr === 'MP' ? 'medium' : p.pr || ''} pressure · asset ${p.id}</div>
+    <table><tr><td>Diameter</td><td>${p.dia ? p.dia + ' mm' : '–'}</td></tr>
+    <tr><td>Installed</td><td>${p.yr || '–'}</td></tr>
+    <tr><td>This section</td><td>${p.km ? Math.round(p.km * 1000) + ' m' : '–'}</td></tr>
+    <tr><td>Replacement programme</td><td>${p.mrp ? 'Scheduled (' + p.mrp + ')' : 'Not in the published programme'}</td></tr></table>
+    <div class="note" style="margin-top:6px">Planning use only, not for excavation: check LinesearchbeforeUdig before digging.</div></div>`;
+}
+
+async function renderGas(token) {
+  const [index, grid, areas] = await Promise.all([
+    load('gas_index', 'data/gb/gas/index.json').catch(() => null),
+    load('gas_grid', 'data/gb/gas/grid.json').catch(() => null),
+    load('gas_areas', 'data/gb/gas/areas.geojson').catch(() => null)]);
+  if (token !== renderToken) return;
+  if (!index || !grid) { renderStats(null, [['–', 'gas data not built yet']]); return; }
+  renderLegend(); fillSearch([]);
+  const gdns = Object.keys(index), cellSets = gdns.map(g => new Set(index[g].cells));
+  const maxKm = Object.values(grid).reduce((m, v) => Math.max(m, v[0]), 0);
+  const squares = L.layerGroup(Object.entries(grid).map(([k, v]) => {
+    const [x, y] = k.split('_').map(Number);
+    const t = Math.sqrt(v[0] / maxKm);
+    return L.rectangle([[y * CELL_LAT, x * CELL_LON], [(y + 1) * CELL_LAT, (x + 1) * CELL_LON]],
+      { stroke: false, fillColor: '#c0392b', fillOpacity: 0.12 + 0.68 * t })
+      .bindTooltip(`${Math.round(v[0])} km metallic main · ${Math.round(v[1])} km in replacement programme (${v[2]})`, { sticky: true });
+  }));
+  const outline = areas ? L.geoJSON(areas, { style: { color: '#c0392b', weight: 1.2, fill: false, dashArray: '2 4' }, interactive: false }) : null;
+  const pipes = L.layerGroup();
+  let shown = '';
+  const toLayer = fc => L.geoJSON(fc, {
+    style: f => ({ color: (GAS_MAT[f.properties.mat] || { c: '#888' }).c, weight: f.properties.mrp ? 5 : 2.2, opacity: 0.9 }),
+    onEachFeature: (f, l) => l.bindPopup(() => gasPopup(f.properties), { maxWidth: 340 }),
+  });
+  const update = async () => {
+    const b = map.getBounds();
+    let km = 0, kmMrp = 0, n = 0;
+    for (const [k, v] of Object.entries(grid)) {
+      const [x, y] = k.split('_').map(Number);
+      if ((x + 1) * CELL_LON < b.getWest() || x * CELL_LON > b.getEast() || (y + 1) * CELL_LAT < b.getSouth() || y * CELL_LAT > b.getNorth()) continue;
+      km += v[0]; kmMrp += v[1]; n++;
+    }
+    renderStats(null, [
+      [Math.round(km).toLocaleString() + ' km', 'metallic gas main in view'],
+      [Math.round(kmMrp).toLocaleString() + ' km', `in replacement programme (${km ? Math.round(100 * kmMrp / km) : 0}%)`],
+      [n, '~10 km squares'], [gdns.join(', '), 'gas networks'],
+    ]);
+    const keys = [];
+    if (map.getZoom() >= GAS_POLY_ZOOM)
+      for (let x = Math.floor(b.getWest() / CELL_LON); x <= Math.floor(b.getEast() / CELL_LON); x++)
+        for (let y = Math.floor(b.getSouth() / CELL_LAT); y <= Math.floor(b.getNorth() / CELL_LAT); y++) keys.push(`${x}_${y}`);
+    if (!keys.length || keys.length > 40) {
+      if (!map.hasLayer(squares)) { pipes.clearLayers(); shown = ''; map.removeLayer(pipes); squares.addTo(map); }
+      return;
+    }
+    const wanted = gdns.flatMap((g, i) => keys.filter(k => cellSets[i].has(k)).map(k => [g, k]));
+    const sig = wanted.map(w => w.join('/')).join('|');
+    if (sig === shown) return;
+    shown = sig;
+    const fcs = await Promise.all(wanted.map(([g, k]) => gasCell(g, k)));
+    if (shown !== sig) return;
+    pipes.clearLayers();
+    fcs.filter(Boolean).forEach(fc => pipes.addLayer(toLayer(fc)));
+    if (map.hasLayer(squares)) map.removeLayer(squares);
+    pipes.addTo(map);
+  };
+  squares.addTo(map);
+  if (outline) outline.addTo(map);
+  map.on('moveend', update);
+  secCleanup = () => { map.off('moveend', update); map.removeLayer(squares); map.removeLayer(pipes); if (outline) map.removeLayer(outline); };
+  update();
+}
+
 function renderStats(props, custom) {
   const el = document.getElementById('stats');
   if (custom) { el.innerHTML = custom.map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join(''); return; }
@@ -462,6 +547,13 @@ function renderStats(props, custom) {
 
 function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
+  if (state.level === 'gas') {
+    el.innerHTML = `<div class="legend">${Object.entries(GAS_MAT).map(([k, m]) =>
+      `<div><span class="sw" style="background:${m.c}"></span>${m.n}</div>`).join('')}
+      <div><span class="sw" style="background:transparent;border:3px solid var(--ink);height:8px"></span>Thick: in replacement programme</div></div>
+      <div class="note" style="margin-top:6px">Zoomed out, squares show km of metallic main (darker = more).</div>`;
+    return;
+  }
   if (state.level === 'secondary' || state.level === 'smart') {
     if (!smBreaks) { el.innerHTML = ''; return; }
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
@@ -524,7 +616,7 @@ document.getElementById('levels').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const lvl = b.dataset.level;
   // network-wide secondary view keeps the current map position; drilling from a primary still scopes it
-  if (lvl === 'secondary' || lvl === 'smart') { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
+  if (['secondary', 'smart', 'gas'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
   state.level = lvl; state.filter = null; state.trail = []; render(true);
 });
 document.getElementById('metrics').addEventListener('click', e => {
@@ -549,7 +641,7 @@ document.getElementById('showLicence').addEventListener('change', async e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  render(state.level !== 'secondary' && state.level !== 'smart');
+  render(!['secondary', 'smart', 'gas'].includes(state.level));
 });
 
 (async () => {

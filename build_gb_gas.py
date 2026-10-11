@@ -36,6 +36,9 @@ MATERIALS = {"CI": "cast iron", "SI": "spun iron", "DI": "ductile iron", "ST": "
 
 
 def year(value):
+    if isinstance(value, (int, float)) and abs(value) > 10 ** 9:  # ArcGIS dates: ms since 1970 (negative earlier)
+        import datetime
+        return (datetime.datetime(1970, 1, 1) + datetime.timedelta(milliseconds=value)).year
     m = re.search(r"(1[89]\d\d|20\d\d)", str(value or ""))
     return int(m.group(1)) if m else None
 

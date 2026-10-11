@@ -1,1 +1,1 @@
-{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"gdn":"SGN","id":"SGND1620710542","mat":"ST","pr":"LP","dia":100,"km":0.007},"geometry":{"type":"LineString","coordinates":[[0.77679,51.07192],[0.77678,51.07198]]}}]}
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"gdn":"SGN","id":"SGND1620710542","mat":"ST","pr":"LP","dia":100,"yr":1993,"km":0.007},"geometry":{"type":"LineString","coordinates":[[0.77679,51.07192],[0.77678,51.07198]]}}]}

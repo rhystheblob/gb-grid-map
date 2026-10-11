@@ -92,7 +92,7 @@ METALLIC = {"CI", "SI", "DI", "ST"}
 
 
 def gpkg_lines(path, table):
-    """Rows of a GeoPackage line table (British National Grid) as (properties, WGS84 GeoJSON geometry).
+    """Rows of a GeoPackage feature table (lines or areas) (British National Grid) as (properties, WGS84 GeoJSON geometry).
     GeoPackage geometry = 'GP' header (+ optional envelope) followed by standard WKB."""
     import sqlite3
     from pyproj import Transformer
@@ -140,7 +140,18 @@ def ngn():
                                       "pr": rec.get("PRESSURE"), "dia": diameter_mm(rec.get("DIAMETER"), rec.get("DIAM_UNIT")),
                                       "yr": year(rec.get("INST_DATE")), "mrp": None}})
     print(f"  NGN zones: {', '.join(zones)}")
-    return out, []
+    areas = []
+    boundary_zip = RAW / "ngn_extra" / "boundaries.zip"  # Network Boundaries (dataset 16), optional
+    if boundary_zip.exists():
+        import sqlite3
+        target = boundary_zip.with_suffix("")
+        with zipfile.ZipFile(boundary_zip) as zf:
+            zf.extractall(target)
+        for g in target.glob("*.gpkg"):
+            for (table,) in sqlite3.connect(g).execute("SELECT table_name FROM gpkg_contents WHERE data_type='features'"):
+                areas += [{"type": "Feature", "properties": {"gdn": "NGN", "name": table}, "geometry": geom}
+                          for _, geom in gpkg_lines(g, table)]
+    return out, areas
 
 
 SGN_HUB = "https://open-data-sharing-portal-sgn-uk.hub.arcgis.com/api/search/v1/collections/dataset/items"

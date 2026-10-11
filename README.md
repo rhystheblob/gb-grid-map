@@ -78,7 +78,7 @@ highlighted. Planning use only, not for excavation (LinesearchbeforeUdig).
 | GDN | Area | Status | Source (access) |
 |---|---|---|---|
 | Cadent | NW England, W Midlands, E England, N London | 309,943 metallic main sections, 19,493 km; 5,316 km in the Mains Replacement Programme | `gas-pipe-infrastructure-gpi_open` (metallic mains filter) + 65 `MRP_Pipe_Infrastructure_<LA>_Open` (login) |
-| Northern Gas Networks | North East, Yorkshire, Cumbria | Central zone: 9,588 metallic main sections, 885 km (other 4 zones pending); no replacement programme published | Live Distribution Mains per zone, GeoPackage (login; download by hand into `data/raw/portals/ngn/`) |
+| Northern Gas Networks | North East, Yorkshire, Cumbria | 55,082 metallic main sections, 4,946 km (all 5 zones) + network boundary; no replacement programme published | Live Distribution Mains per zone + Network Boundaries, GeoPackage (login; the portal keeps the session per tab, so downloads are by the owner's own clicks into `data/raw/portals/ngn/` and `ngn_extra/`) |
 | SGN | Scotland, Southern England | 136,714 metallic main sections, 13,487 km (114 local authorities); no replacement programme published | public ArcGIS service per local authority on SGN's open data hub (`python3 build_gb_gas.py --fetch-sgn`, no login) |
 | Wales & West Utilities | Wales, SW England | no pipe data published yet | network boundary, LTDS workbook |
 

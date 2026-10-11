@@ -1,0 +1,30 @@
+name: Deploy to AWS
+
+# Publishes the map to S3 + CloudFront (infra/deploy.sh) on every push to main, including the weekly
+# data refresh commits. Needs the OIDC deploy role from infra/hosting.yaml (GitHubOidc=true) and the
+# repo variable AWS_DEPLOY_ROLE_ARN; until that variable is set the job is skipped.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-north-1
+      - run: infra/deploy.sh

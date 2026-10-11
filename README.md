@@ -3,7 +3,7 @@
 Interactive capacity map of Great Britain's electricity distribution networks, built from each network operator's
 (DNO's) open data: GSP → BSP → Primary for every operator, plus Secondary → smart meter where available.
 
-Live map: https://rhystheblob.github.io/gb-grid-map/
+Live map: https://dhjqzmvbjasrm.cloudfront.net/ (AWS) · https://rhystheblob.github.io/gb-grid-map/ (GitHub Pages)
 
 ```
 python3 fetch_public.py   # SSEN layers (public ArcGIS)
@@ -195,6 +195,23 @@ to SSEN-verified users; request verification from data@ssen.co.uk to automate it
 
 The map is served by GitHub Pages from `main`: https://rhystheblob.github.io/gb-grid-map/ (the old
 ssen-grid-map address redirects here).
+
+### AWS (S3 + CloudFront)
+
+The same site is also served from AWS (project Region eu-north-1): https://dhjqzmvbjasrm.cloudfront.net/
+
+- `infra/hosting.yaml`: CloudFormation stack `gb-grid-map-hosting` = private, encrypted S3 bucket
+  `gb-grid-map-site-<account>` readable only by the CloudFront distribution (origin access control), HTTPS only,
+  managed CachingOptimized + SecurityHeaders policies, PriceClass_100.
+- `infra/deploy.sh`: uploads `index.html` + git-tracked `data/` (never `data/raw/`) and invalidates the cache.
+  CloudFront only compresses 1 KB–10 MB responses with listed content types, so `.geojson` is served as
+  `application/json` and JSON files over 10 MB are uploaded pre-gzipped (`Content-Encoding: gzip`). Run it after
+  each data refresh: `PATH=$HOME/.local/bin:$PATH infra/deploy.sh` (profile `gb-grid-map`, via `aws login`).
+- `infra/budget.sh`: the $5/month cost budget with email alerts (80% actual, 100% forecast); kept out of the
+  stack because CloudFormation in eu-north-1 has no `AWS::Budgets::Budget`.
+- `.github/workflows/deploy.yml` deploys on every push to `main`, but stays skipped until the repo variable
+  `AWS_DEPLOY_ROLE_ARN` is set. The role needs the GitHub OIDC provider (`GitHubOidc=true` in the stack), which
+  the AWS Free plan's managed SCP denies (`iam:*Provider*`), so it needs the Paid plan.
 
 A Claude cloud routine ("GB grid map weekly refresh", Mondays 06:00 UTC) checks out this repo, runs
 `fetch_public.py`, `fetch_portal.py --skip-smart-meter` and `build_gb.py`, sanity-checks feature counts, and commits changed `data/` files, which

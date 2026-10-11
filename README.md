@@ -3,7 +3,7 @@
 Interactive capacity map of Great Britain's electricity distribution networks, built from each network operator's
 (DNO's) open data: GSP → BSP → Primary for every operator, plus Secondary → smart meter where available.
 
-Live map: https://dhjqzmvbjasrm.cloudfront.net/ (AWS) · https://rhystheblob.github.io/gb-grid-map/ (GitHub Pages)
+Live map: https://dhjqzmvbjasrm.cloudfront.net/
 
 ```
 python3 fetch_public.py   # SSEN layers (public ArcGIS)
@@ -193,12 +193,11 @@ to SSEN-verified users; request verification from data@ssen.co.uk to automate it
 
 ## Hosting and weekly refresh
 
-The map is served by GitHub Pages from `main`: https://rhystheblob.github.io/gb-grid-map/ (the old
-ssen-grid-map address redirects here).
+The map was served by GitHub Pages until 11 Oct 2026; Pages is now off and the map is served from AWS only.
 
 ### AWS (S3 + CloudFront)
 
-The same site is also served from AWS (project Region eu-north-1): https://dhjqzmvbjasrm.cloudfront.net/
+The site is served from AWS (project Region eu-north-1): https://dhjqzmvbjasrm.cloudfront.net/
 
 - `infra/hosting.yaml`: CloudFormation stack `gb-grid-map-hosting` = private, encrypted S3 bucket
   `gb-grid-map-site-<account>` readable only by the CloudFront distribution (origin access control), HTTPS only,
@@ -213,9 +212,9 @@ The same site is also served from AWS (project Region eu-north-1): https://dhjqz
   `AWS_DEPLOY_ROLE_ARN` is set. The role needs the GitHub OIDC provider (`GitHubOidc=true` in the stack), which
   the AWS Free plan's managed SCP denies (`iam:*Provider*`), so it needs the Paid plan.
 
+**Paused 11 Oct 2026** (the map moved to AWS, and the routine only commits to GitHub; it doesn't deploy).
 A Claude cloud routine ("GB grid map weekly refresh", Mondays 06:00 UTC) checks out this repo, runs
-`fetch_public.py`, `fetch_portal.py --skip-smart-meter` and `build_gb.py`, sanity-checks feature counts, and commits changed `data/` files, which
-republishes the map. `SSEN_API_KEY` is set as an environment variable on the cloud environment, never in the repo.
+`fetch_public.py`, `fetch_portal.py --skip-smart-meter` and `build_gb.py`, sanity-checks feature counts, and commits changed `data/` files. `SSEN_API_KEY` is set as an environment variable on the cloud environment, never in the repo.
 Manage the routine at https://claude.ai/code/routines/trig_01YYGzTxvU8BEPKmTShbzBgo
 
 Smart meter data is refreshed locally, not by the cloud routine: SSEN's daily raw files are ~800 MB each (too big

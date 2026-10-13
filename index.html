@@ -318,12 +318,19 @@ const DotLayer = L.Layer.extend({
     this._redraw();
   },
   onRemove(map) { L.DomUtil.remove(this._canvas); map.off('moveend resize', this._redraw, this); },
+  // dot radius in pixels: grows with zoom (up to 9 px at street level) so dots stay easy to click
+  radius() {
+    const z = this._map.getZoom();
+    return (this._opts.scale || 1) * (z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : Math.min(9, 3.2 + (z - 11) * 1.2));
+  },
+  // squared click tolerance: the dot itself plus a few pixels
+  hitRadius2() { return Math.max(64, (this.radius() + 4) ** 2); },
   _redraw() {
     const map = this._map, size = map.getSize(), c = this._canvas, dpr = window.devicePixelRatio || 1;
     c.width = size.x * dpr; c.height = size.y * dpr; c.style.width = size.x + 'px'; c.style.height = size.y + 'px';
     L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
     const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
-    const b = map.getBounds().pad(0.05), z = map.getZoom(), r = (this._opts.scale || 1) * (z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : 3.2);
+    const b = map.getBounds().pad(0.05), r = this.radius();
     const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
     const grey = [], byColour = {};
     for (const p of this._pts) {
@@ -445,7 +452,7 @@ async function renderSecondary(token) {
   const onClick = async e => {
     if (!map.hasLayer(dots)) return;
     const c = map.latLngToContainerPoint(e.latlng);
-    let best = null, bestD = 64;
+    let best = null, bestD = dots.hitRadius2();
     for (const p of pts) {
       if (Math.abs(p[1] - e.latlng.lat) > 0.2 || Math.abs(p[0] - e.latlng.lng) > 0.3) continue;
       const q = map.latLngToContainerPoint([p[1], p[0]]), dd = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
@@ -644,7 +651,7 @@ async function renderTelecoms(token) {
   const onClick = e => {
     const c = map.latLngToContainerPoint(e.latlng);
     const nearest = arr => {
-      let best = null, bd = 64;
+      let best = null, bd = (arr === gpc ? gigDots : oaDots).hitRadius2();
       for (const p of arr) {
         if (Math.abs(p[1] - e.latlng.lat) > 0.2 || Math.abs(p[0] - e.latlng.lng) > 0.3) continue;
         const q = map.latLngToContainerPoint([p[1], p[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
@@ -747,7 +754,7 @@ async function renderDigOnce(token) {
   };
   const onClick = async e => {
     const c = map.latLngToContainerPoint(e.latlng);
-    let best = null, bd = 64;
+    let best = null, bd = dots.hitRadius2();
     for (const r of rows) {
       if (Math.abs(r[1] - e.latlng.lat) > 0.2 || Math.abs(r[0] - e.latlng.lng) > 0.3) continue;
       const q = map.latLngToContainerPoint([r[1], r[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;

@@ -159,7 +159,7 @@ const NOTES = {
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
-const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all', la: null, lic: null };
+const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all', la: null, lic: null, digMin: 2 };
 const data = {};
 const map = L.map('map', { preferCanvas: true }).setView([54.8, -3.2], 6);
 const basemaps = {
@@ -708,7 +708,8 @@ async function renderDigOnce(token) {
   if (!st && !s58) { renderStats(null, [['–', 'dig-once data not built yet']]); return; }
   renderLegend(); fillSearch([]);
   const la = areaSel().length > 0;  // stats cover the selected area rather than the view
-  const rows = st ? st.points.filter(r => inArea(r[0], r[1])) : [];  // [lon, lat, score, flags]; details per cell
+  const allRows = st ? st.points.filter(r => inArea(r[0], r[1])) : [];  // [lon, lat, score, flags]; details per cell
+  let rows = allRows.filter(r => r[2] >= state.digMin);  // legend slider: minimum score
   const sectors = st ? st.sectors : [];
   const s58Feats = s58 ? s58.features.filter(featInArea) : [];
   const digCell = key => (data['dig_cell_' + key] ||= fetch(`data/gb/digonce/cells/${key}.json`).then(r => r.ok ? r.json() : []));
@@ -731,7 +732,7 @@ async function renderDigOnce(token) {
     // with a local authority selected, the stats cover the whole authority rather than the view
     const b = map.getBounds(), inView = la ? rows : rows.filter(r => b.contains([r[1], r[0]]));
     const s58In = s58Feats.filter((f, i) => la || b.intersects(s58Boxes[i]));
-    if (la && !rows.length && !s58In.length) renderStats(null, [['–', 'no dig-once data here (it covers England only)']]);
+    if (la && !allRows.length && !s58In.length) renderStats(null, [['–', 'no dig-once data here (it covers England only)']]);
     else renderStats(null, [
       [inView.length.toLocaleString(), 'streets with a dig-once signal'],
       [inView.filter(r => r[3] & 1).length.toLocaleString(), 'dug by 3+ utilities in a year'],
@@ -757,6 +758,20 @@ async function renderDigOnce(token) {
     const row = cell.find(r => r[0] === best[0] && r[1] === best[1]);
     if (row) L.popup({ maxWidth: 380 }).setLatLng([best[1], best[0]]).setContent(digPopup(row, sectors)).openOn(map);
   };
+  // legend slider: hide streets below a minimum score (bands match the dot colours)
+  const slider = document.getElementById('digMin'), sliderLabel = document.getElementById('digMinLabel');
+  const band = v => v <= 2 ? 'every signal' : v <= 4 ? 'a few signals or more' : v <= 6 ? 'several signals or more'
+                  : v <= 9 ? 'many signals or more' : 'strong cases';
+  const setMin = () => {
+    state.digMin = +slider.value;
+    rows = allRows.filter(r => r[2] >= state.digMin);
+    dots._pts = rows;
+    if (map.hasLayer(dots)) dots._redraw();
+    sliderLabel.textContent = `Score ${state.digMin}+ (${band(state.digMin)}): ${rows.length.toLocaleString()} streets`;
+    update();
+  };
+  slider.addEventListener('input', setMin);
+  setMin();
   dots.addTo(map);
   map.on('moveend', update); map.on('click', onClick);
   secCleanup = () => { map.off('moveend', update); map.off('click', onClick); map.removeLayer(dots); map.removeLayer(restrictions); };
@@ -786,6 +801,9 @@ function renderLegend(smBreaks, smUnit, smLabel) {
   if (state.level === 'digonce') {
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
       <div class="ramp-l"><span>one signal</span><span>several</span><span>strong case</span></div>
+      <input type="range" id="digMin" min="2" max="13" step="1" value="${state.digMin}" aria-label="Minimum dig-once score"
+        style="width:100%;margin:6px 0 0;accent-color:var(--accent)">
+      <div class="sources" id="digMinLabel"></div>
       <div class="legend" style="margin-top:6px">
         <div><span class="sw" style="background:${S58_COL.proposed}"></span>Resurfacing restriction proposed: dig before it starts</div>
         <div><span class="sw" style="background:${S58_COL.in_force}"></span>Restriction in force: no new works</div></div>

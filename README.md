@@ -151,6 +151,8 @@ areas and pipes count if any vertex falls inside or they enclose the selection; 
 touching the area. Licence boundaries are generalised, so a few coastal points can drop out when one is selected.
 Output: `data/gb/la.geojson` (~8 MB).
 
+On the Dig once layer, the slider under the legend sets a minimum score (2 = every street with a signal, 10+ = strong cases); dots and stats follow it.
+
 ## Weekly cloud refresh: GB build steps
 
 Run after the SSEN steps. All are public sources, so they work in the cloud with no keys:

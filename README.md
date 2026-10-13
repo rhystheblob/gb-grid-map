@@ -151,6 +151,13 @@ areas and pipes count if any vertex falls inside or they enclose the selection; 
 touching the area. Licence boundaries are generalised, so a few coastal points can drop out when one is selected.
 Output: `data/gb/la.geojson` (~8 MB).
 
+**Road lines** (`build_gb_digonce_lines.py`, run after `build_gb_digonce.py`): from zoom 14 each dig-once street is
+drawn along the road using OS Open USRN street lines (Ordnance Survey open data, monthly GeoPackage into
+`data/raw/usrn/` from `https://api.os.uk/downloads/v1/products/OpenUSRN/downloads?area=GB&format=GeoPackage&redirect`;
+Contains OS data © Crown copyright and database rights 2026), with thick sections where its works in the last 12
+months or planned works sit: each permit's location centre snapped onto the line, works within 100 m grouped into one
+section, padded 15 m. 192,672 of 192,678 streets matched (median section 158 m). Output `data/gb/digonce/lines/` (~78 MB).
+
 On the Dig once layer, the slider under the legend sets a minimum score (2 = every street with a signal, 10+ = strong cases); dots and stats follow it.
 
 ## Weekly cloud refresh: GB build steps

@@ -152,7 +152,7 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
-  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when. Pick a local authority or licence area under “Show only data within” to see only its streets and totals.',
+  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). From street zoom each street is drawn along the road, thick where its works were or are planned (Ordnance Survey street lines). Click a street for who dug, who plans to, and when. Pick a local authority or licence area under “Show only data within” to see only its streets and totals.',
   telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
@@ -313,6 +313,7 @@ const DotLayer = L.Layer.extend({
   onAdd(map) {
     this._map = map;
     this._canvas = L.DomUtil.create('canvas', 'leaflet-zoom-hide');
+    this._canvas.style.pointerEvents = 'none';  // clicks go to the map (nearest-dot lookup) and to vectors underneath
     map.getPanes().overlayPane.appendChild(this._canvas);
     map.on('moveend resize', this._redraw, this);
     this._redraw();
@@ -333,8 +334,9 @@ const DotLayer = L.Layer.extend({
     const b = map.getBounds().pad(0.05), r = this.radius();
     const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
     const grey = [], byColour = {};
+    const skip = this._opts.skip;
     for (const p of this._pts) {
-      if (p[0] < w || p[0] > e || p[1] < s || p[1] > n) continue;
+      if (p[0] < w || p[0] > e || p[1] < s || p[1] > n || (skip && skip(p))) continue;
       const col = this._colourOf(p);
       (col ? (byColour[col] ||= []) : grey).push(map.latLngToContainerPoint([p[1], p[0]]));
     }
@@ -683,6 +685,8 @@ async function renderTelecoms(token) {
 
 const S58_COL = { proposed: '#e8833a', in_force: '#6b7a8c' };
 const DIG_BREAKS = [2, 4, 6, 9];
+const DIG_LINE_ZOOM = 14;  // from here streets are drawn along the road instead of as dots
+const OS_ATTRIB = 'Street lines: contains OS data &copy; Crown copyright and database rights 2026';
 const SECTOR_LABEL = { electricity: 'Electricity', gas: 'Gas', water: 'Water', telecoms: 'Telecoms', highway: 'Highway authority', other: 'Other' };
 
 function digPopup(r, sectors) {
@@ -720,7 +724,48 @@ async function renderDigOnce(token) {
   const sectors = st ? st.sectors : [];
   const s58Feats = s58 ? s58.features.filter(featInArea) : [];
   const digCell = key => (data['dig_cell_' + key] ||= fetch(`data/gb/digonce/cells/${key}.json`).then(r => r.ok ? r.json() : []));
-  const dots = new DotLayer(rows, r => smColour(r[2], DIG_BREAKS));
+  // from street zoom, streets are drawn along the road (OS Open USRN) with the dug sections highlighted,
+  // replacing their dots; lines are keyed by the street's dot position
+  const posKey = r => r[0] + ',' + r[1];
+  let shownKeys = new Set(rows.map(posKey)), lineKeys = new Set();
+  const dots = new DotLayer(rows, r => smColour(r[2], DIG_BREAKS), { skip: r => lineKeys.has(posKey(r)) });
+  const scoreAt = new Map(allRows.map(r => [posKey(r), r[2]]));
+  const lineCell = key => (data['dig_line_' + key] ||= fetch(`data/gb/digonce/lines/${key}.json`).then(r => r.ok ? r.json() : []));
+  const roads = L.layerGroup();
+  let roadsSig = '';
+  const openStreet = async (lon, lat) => {
+    const row = (await digCell(cellKey(lon, lat))).find(r => r[0] === lon && r[1] === lat);
+    if (row) L.popup({ maxWidth: 380 }).setLatLng([lat, lon]).setContent(digPopup(row, sectors)).openOn(map);
+  };
+  const drawRoads = async () => {
+    if (map.getZoom() < DIG_LINE_ZOOM) {
+      if (roadsSig) { map.removeLayer(roads); roads.clearLayers(); roadsSig = ''; lineKeys = new Set(); dots._redraw();
+                      map.attributionControl.removeAttribution(OS_ATTRIB); }
+      return;
+    }
+    const b = map.getBounds().pad(0.3), keys = [];
+    for (let x = Math.floor(b.getWest() / CELL_LON); x <= Math.floor(b.getEast() / CELL_LON); x++)
+      for (let y = Math.floor(b.getSouth() / CELL_LAT); y <= Math.floor(b.getNorth() / CELL_LAT); y++) keys.push(`${x}_${y}`);
+    const sig = keys.join('|') + '#' + state.digMin + '#' + areaKey();
+    if (sig === roadsSig || keys.length > 30) return;
+    roadsSig = sig;
+    const cells = await Promise.all(keys.map(lineCell));
+    if (roadsSig !== sig) return;  // view moved on while loading
+    roads.clearLayers();
+    const keep = new Set();
+    for (const [lon, lat, , street, secs] of cells.flat()) {
+      const k = lon + ',' + lat;
+      if (!shownKeys.has(k)) continue;
+      keep.add(k);
+      const col = smColour(scoreAt.get(k), DIG_BREAKS), ll = line => line.map(([x, y]) => [y, x]);
+      const click = e => { L.DomEvent.stopPropagation(e); openStreet(lon, lat); };
+      roads.addLayer(L.polyline(street.map(ll), { color: col, weight: 3, opacity: 0.45 }).on('click', click));
+      if (secs.length) roads.addLayer(L.polyline(secs.map(ll), { color: col, weight: 8, opacity: 0.95, lineCap: 'round' }).on('click', click));
+    }
+    lineKeys = keep;
+    if (!map.hasLayer(roads)) { roads.addTo(map); map.attributionControl.addAttribution(OS_ATTRIB); }
+    dots._redraw();
+  };
   const restrictions = L.layerGroup();
   let restrictionsShown = false;
   // bounding box per restriction, so only those in view are drawn
@@ -756,14 +801,11 @@ async function renderDigOnce(token) {
     const c = map.latLngToContainerPoint(e.latlng);
     let best = null, bd = dots.hitRadius2();
     for (const r of rows) {
-      if (Math.abs(r[1] - e.latlng.lat) > 0.2 || Math.abs(r[0] - e.latlng.lng) > 0.3) continue;
+      if (Math.abs(r[1] - e.latlng.lat) > 0.2 || Math.abs(r[0] - e.latlng.lng) > 0.3 || lineKeys.has(posKey(r))) continue;
       const q = map.latLngToContainerPoint([r[1], r[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
       if (d < bd) { bd = d; best = r; }
     }
-    if (!best) return;
-    const cell = await digCell(cellKey(best[0], best[1]));
-    const row = cell.find(r => r[0] === best[0] && r[1] === best[1]);
-    if (row) L.popup({ maxWidth: 380 }).setLatLng([best[1], best[0]]).setContent(digPopup(row, sectors)).openOn(map);
+    if (best) openStreet(best[0], best[1]);
   };
   // legend slider: hide streets below a minimum score (bands match the dot colours)
   const slider = document.getElementById('digMin'), sliderLabel = document.getElementById('digMinLabel');
@@ -772,16 +814,20 @@ async function renderDigOnce(token) {
   const setMin = () => {
     state.digMin = +slider.value;
     rows = allRows.filter(r => r[2] >= state.digMin);
+    shownKeys = new Set(rows.map(posKey));
     dots._pts = rows;
     if (map.hasLayer(dots)) dots._redraw();
     sliderLabel.textContent = `Score ${state.digMin}+ (${band(state.digMin)}): ${rows.length.toLocaleString()} streets`;
     update();
+    drawRoads();
   };
   slider.addEventListener('input', setMin);
   setMin();
   dots.addTo(map);
-  map.on('moveend', update); map.on('click', onClick);
-  secCleanup = () => { map.off('moveend', update); map.off('click', onClick); map.removeLayer(dots); map.removeLayer(restrictions); };
+  map.on('moveend', update); map.on('moveend', drawRoads); map.on('click', onClick);
+  secCleanup = () => { map.off('moveend', update); map.off('moveend', drawRoads); map.off('click', onClick);
+                       map.removeLayer(dots); map.removeLayer(restrictions); map.removeLayer(roads);
+                       map.attributionControl.removeAttribution(OS_ATTRIB); };
   update();
 }
 
@@ -812,6 +858,7 @@ function renderLegend(smBreaks, smUnit, smLabel) {
         style="width:100%;margin:6px 0 0;accent-color:var(--accent)">
       <div class="sources" id="digMinLabel"></div>
       <div class="legend" style="margin-top:6px">
+        <div><span class="sw" style="background:linear-gradient(180deg,transparent 35%,#e8833a 35%,#e8833a 65%,transparent 65%)"></span>Street zoom: the road, with thick sections where works were or are planned</div>
         <div><span class="sw" style="background:${S58_COL.proposed}"></span>Resurfacing restriction proposed: dig before it starts</div>
         <div><span class="sw" style="background:${S58_COL.in_force}"></span>Restriction in force: no new works</div></div>
       <div class="note" style="margin-top:6px">Score = utilities that dug the street in the last year + 2 × utilities with works planned + 3 if a restriction is proposed + nearby signals from the other layers (gas mains due for replacement, storm overflow works by 2030, overloaded secondary substations, missing gigabit or Project Gigabit build).</div>`;

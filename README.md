@@ -142,8 +142,13 @@ that permit street works and issue Section 58 restrictions; every Scottish and W
 ONS "Counties and Unitary Authorities (December 2025) Boundaries UK BGC" service (public, Open Government Licence;
 Northern Ireland dropped). Each authority carries its dig-once totals (streets with a signal, dug by 3+ utilities,
 works planned, Section 58 proposed / in force, top score), counted by point-in-polygon, so **run it after
-`build_gb_digonce.py`**. On the map: Overlays → "Local authorities" draws the boundaries; the "Zoom to a local
-authority" list zooms to one and, on the Dig once layer, shows only that authority's streets with its totals.
+`build_gb_digonce.py`**. On the map: Overlays → "Local authorities" draws the boundaries.
+
+**Area filter** ("Show only data within"): pick a local authority and/or a DNO licence area and every layer keeps
+only data inside it (inside both when both are picked), the rest of the map is dimmed, and the stats cover the
+whole area instead of the view. Points (secondaries, overflows, output areas, dig-once streets) are tested exactly;
+areas and pipes count if any vertex falls inside or they enclose the selection; gas totals use the ~10 km squares
+touching the area. Licence boundaries are generalised, so a few coastal points can drop out when one is selected.
 Output: `data/gb/la.geojson` (~8 MB).
 
 ## Weekly cloud refresh: GB build steps

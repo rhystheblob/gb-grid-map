@@ -113,7 +113,13 @@
       <div class="label">Overlays</div>
       <label class="chk"><input type="checkbox" id="showLicence" checked> Licence areas</label>
       <label class="chk"><input type="checkbox" id="showLA"> Local authorities</label>
-      <select id="la" style="margin-top:4px"><option value="">Zoom to a local authority…</option></select>
+    </div>
+
+    <div class="group">
+      <div class="label">Show only data within</div>
+      <select id="la"><option value="">Any local authority</option></select>
+      <select id="lic" style="margin-top:6px"><option value="">Any licence area</option></select>
+      <div class="sources" id="areaNote" style="margin-top:4px;display:none">Stats cover the whole selected area. <a href="#" id="areaClear">Clear</a></div>
     </div>
 
     <div class="group">
@@ -146,14 +152,14 @@ const NOTES = {
   bsp: 'Bulk Supply Points (132/33kV and 132/66kV). Areas where the operator publishes supply-area boundaries; dots where it publishes site locations only.',
   primary: 'Primary substations (33/11kV and 66/11kV). Headroom and RAG are each operator\'s own published estimates, so methods differ slightly between operators.',
   secondary: 'Every GB secondary substation (11kV/LV), coloured by utilisation where the operator publishes rating and demand. Dots when zoomed out; supply areas (or sites) from street level. UKPN gives bands; NPg redacts small sites; SPEN covers monitored transformers only; SSEN publishes no ratings.',
-  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when. Pick a local authority (Overlays) to see only its streets and totals.',
+  digonce: 'Where street works could be coordinated (England, DfT Street Manager). Dots: streets where several utilities dug in the last 12 months, utility works are already planned, or a resurfacing restriction (Section 58) is coming; the more signals, the redder. From street zoom: Section 58 restrictions (orange: proposed, dig before it starts; grey: in force, no new works). Click a street for who dug, who plans to, and when. Pick a local authority or licence area under “Show only data within” to see only its streets and totals.',
   telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
-const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all', la: null };
+const state = { level: 'gsp', metric: 'dRAG', filter: null, trail: [], dno: 'all', la: null, lic: null };
 const data = {};
 const map = L.map('map', { preferCanvas: true }).setView([54.8, -3.2], 6);
 const basemaps = {
@@ -168,7 +174,7 @@ basemaps['Light grey'].addTo(map);
 L.control.layers(basemaps, null, { position: 'topright' }).addTo(map);
 
 let areaLayer = null, licenceLayer = null, secLayers = null, secCleanup = null, manifest = {};
-let laLayer = null, laHighlight = null;
+let laLayer = null, areaShade = null;
 // local authority outlines sit above every layer but never take clicks
 map.createPane('la');
 map.getPane('la').style.zIndex = 450;
@@ -246,7 +252,7 @@ async function render(fit) {
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
   document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
-  document.getElementById('statsLabel').textContent = 'In view';
+  document.getElementById('statsLabel').textContent = areaName() || 'In view';
   renderCrumbs();
   renderLegend();
 
@@ -261,9 +267,9 @@ async function render(fit) {
   if (token !== renderToken) return;
   const fc = await loadLevel(state.level);
   const feats = fc.features.filter(f => (!state.filter || f.properties.pid === state.filter)
-                                     && (state.dno === 'all' || f.properties.dno === state.dno));
+                                     && (state.dno === 'all' || f.properties.dno === state.dno) && featInArea(f));
   // an operator that doesn't publish this level (NGED has no GSP tier): show its top level instead
-  if (!feats.length && !state.filter && state.level === 'gsp') { state.level = 'bsp'; return render(fit); }
+  if (!feats.length && !state.filter && state.level === 'gsp' && !areaSel().length) { state.level = 'bsp'; return render(fit); }
   areaLayer = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
     style: f => f.geometry.type === 'Point'
       ? { color: '#ffffff', weight: 1, fillColor: colourFor(f.properties), fillOpacity: 0.95 }
@@ -276,7 +282,7 @@ async function render(fit) {
       layer.on('mouseout', () => areaLayer && areaLayer.resetStyle(layer));
     }
   }).addTo(map);
-  if (fit && feats.length) map.fitBounds(areaLayer.getBounds(), { padding: [20, 20] });
+  if (fit && feats.length && !areaSel().length) map.fitBounds(areaLayer.getBounds(), { padding: [20, 20] });
   renderStats(feats.map(f => f.properties));
   fillSearch(feats.map(f => f.properties.name));
 }
@@ -376,7 +382,7 @@ async function renderSecondary(token) {
   const parts = await Promise.all(dnos.map(d => load('sec_pts_' + d, `data/gb/sec/points_${d}.json`)));
   if (token !== renderToken) return;
   const pts = [];
-  parts.forEach((arr, i) => (arr || []).forEach(p => pts.push([p[0], p[1], p[2], p[3], i])));
+  parts.forEach((arr, i) => (arr || []).forEach(p => inArea(p[0], p[1]) && pts.push([p[0], p[1], p[2], p[3], i])));
   const cellSets = dnos.map(d => new Set(index[d].cells));
   const colourOf = p => p[scale.idx] >= 0 ? smColour(p[scale.idx], scale.breaks) : null;
   const colourProps = pr => pr[scale.prop] != null ? smColour(pr[scale.prop], scale.breaks) : null;
@@ -390,6 +396,7 @@ async function renderSecondary(token) {
   const polys = L.layerGroup();
   let shown = '';
   const toLayer = fc => L.geoJSON(fc, {
+    filter: featInArea,
     style: f => f.geometry.type === 'Point'
       ? { color: '#ffffff', weight: 1, fillColor: colourProps(f.properties) || getCss('--grey'), fillOpacity: colourProps(f.properties) ? 0.95 : 0.5 }
       : { color: '#ffffff', weight: 0.6, fillColor: colourProps(f.properties) || getCss('--grey'), fillOpacity: colourProps(f.properties) ? 0.7 : 0.3 },
@@ -402,16 +409,16 @@ async function renderSecondary(token) {
 
   const update = async () => {
     const b = map.getBounds();
-    const inView = pts.filter(p => b.contains([p[1], p[0]]));
+    const inView = areaSel().length ? pts : pts.filter(p => b.contains([p[1], p[0]]));
     const withV = inView.filter(p => p[scale.idx] >= 0);
     renderStats(null, [
-      [inView.length.toLocaleString(), 'secondaries in view'],
+      [inView.length.toLocaleString(), areaSel().length ? 'secondaries' : 'secondaries in view'],
       [`${withV.length.toLocaleString()} (${inView.length ? Math.round(100 * withV.length / inView.length) : 0}%)`,
        state.level === 'smart' ? 'with smart meter data' : 'with utilisation'],
       state.level === 'smart'
         ? [withV.length ? withV.reduce((m, p) => Math.max(m, p[3]), 0) + ' kW' : '–', 'highest secondary peak']  // no spread: 100k+ args overflow
         : [withV.filter(p => p[2] > 100).length.toLocaleString(), 'over 100% utilised'],
-      [new Set(inView.map(p => p[4])).size, 'operators in view'],
+      [new Set(inView.map(p => p[4])).size, areaSel().length ? 'operators' : 'operators in view'],
     ]);
     const keys = [];
     if (map.getZoom() >= SEC_POLY_ZOOM) {
@@ -499,11 +506,12 @@ async function renderGas(token) {
     return L.rectangle([[y * CELL_LAT, x * CELL_LON], [(y + 1) * CELL_LAT, (x + 1) * CELL_LON]],
       { stroke: false, fillColor: '#c0392b', fillOpacity: 0.12 + 0.68 * t })
       .bindTooltip(`${Math.round(v[0])} km metallic main · ${Math.round(v[1])} km in replacement programme (${v[2]})`, { sticky: true });
-  }));
+  }).filter((sq, i) => cellInArea(Object.keys(grid)[i])));
   const outline = areas ? L.geoJSON(areas, { style: { color: '#c0392b', weight: 1.2, fill: false, dashArray: '2 4' }, interactive: false }) : null;
   const pipes = L.layerGroup();
   let shown = '';
   const toLayer = fc => L.geoJSON(fc, {
+    filter: featInArea,
     style: f => ({ color: (GAS_MAT[f.properties.mat] || { c: '#888' }).c, weight: f.properties.mrp ? 5 : 2.2, opacity: 0.9 }),
     onEachFeature: (f, l) => l.bindPopup(() => gasPopup(f.properties), { maxWidth: 340 }),
   });
@@ -512,13 +520,14 @@ async function renderGas(token) {
     let km = 0, kmMrp = 0, n = 0;
     for (const [k, v] of Object.entries(grid)) {
       const [x, y] = k.split('_').map(Number);
-      if ((x + 1) * CELL_LON < b.getWest() || x * CELL_LON > b.getEast() || (y + 1) * CELL_LAT < b.getSouth() || y * CELL_LAT > b.getNorth()) continue;
+      if (areaSel().length ? !cellInArea(k)
+          : (x + 1) * CELL_LON < b.getWest() || x * CELL_LON > b.getEast() || (y + 1) * CELL_LAT < b.getSouth() || y * CELL_LAT > b.getNorth()) continue;
       km += v[0]; kmMrp += v[1]; n++;
     }
     renderStats(null, [
-      [Math.round(km).toLocaleString() + ' km', 'metallic gas main in view'],
+      [Math.round(km).toLocaleString() + ' km', areaSel().length ? 'metallic gas main (~10 km squares touching the area)' : 'metallic gas main in view'],
       [Math.round(kmMrp).toLocaleString() + ' km', `in replacement programme (${km ? Math.round(100 * kmMrp / km) : 0}%)`],
-      [n, '~10 km squares'], [gdns.join(', '), 'gas networks'],
+      [n, '~10 km squares'], [gdns.filter((g, i) => !areaSel().length || index[g].cells.some(cellInArea)).join(', ') || '–', 'gas networks'],
     ]);
     const keys = [];
     if (map.getZoom() >= GAS_POLY_ZOOM)
@@ -575,12 +584,13 @@ async function renderWater(token) {
     load('water_ovf', 'data/gb/water/overflows.geojson').catch(() => null)]);
   if (token !== renderToken) return;
   if (!ovf) { renderStats(null, [['–', 'water data not built yet']]); return; }
-  renderLegend(); fillSearch(ovf.features.map(f => f.properties.site).filter(Boolean));
+  const ovfIn = { ...ovf, features: ovf.features.filter(featInArea) };
+  renderLegend(); fillSearch(ovfIn.features.map(f => f.properties.site).filter(Boolean));
   const outline = areas ? L.geoJSON(areas, {
     style: f => ({ color: '#0b6bcb', weight: f.properties.code && ['IWN', 'LEP', 'ICW'].includes(f.properties.code) ? 0.6 : 1.4, fill: false }),
     onEachFeature: (f, l) => l.bindTooltip(`${f.properties.company}${f.properties.area ? ' · ' + f.properties.area : ''}`, { sticky: true }),
   }) : null;
-  const points = L.geoJSON(ovf, {
+  const points = L.geoJSON(ovfIn, {
     pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, color: '#ffffff', weight: 0.6,
       fillColor: (waterBand(f.properties) || { c: '#9aa4b1' }).c, fillOpacity: 0.9 }),
     onEachFeature: (f, l) => { l.bindPopup(() => waterPopup(f.properties), { maxWidth: 360 }); l.bindTooltip(f.properties.site || 'Storm overflow'); },
@@ -588,10 +598,10 @@ async function renderWater(token) {
   areaLayer = points;  // lets the search box find overflows by site name
   const update = () => {
     const b = map.getBounds();
-    const inView = ovf.features.filter(f => b.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]])).map(f => f.properties);
+    const inView = ovfIn.features.filter(f => areaSel().length || b.contains([f.geometry.coordinates[1], f.geometry.coordinates[0]])).map(f => f.properties);
     const n = t => inView.filter(t).length;
     renderStats(null, [
-      [inView.length.toLocaleString(), 'storm overflows in view'],
+      [inView.length.toLocaleString(), areaSel().length ? 'storm overflows' : 'storm overflows in view'],
       [n(WATER_BANDS[0].test).toLocaleString(), 'works planned by 2030'],
       [n(WATER_BANDS[1].test).toLocaleString(), 'works planned 2031–2035'],
       [new Set(inView.map(p => p.company)).size, 'water companies'],
@@ -608,24 +618,25 @@ const GIG_PURPLE = '#7b2cbf';
 const GIG_BREAKS = [0, 10, 25, 50];  // % of premises without gigabit
 
 async function renderTelecoms(token) {
-  const [oa, gig] = await Promise.all([
+  let [oa, gig] = await Promise.all([
     load('tel_oa', 'data/gb/telecoms/oa.json').catch(() => null),
     load('tel_gig', 'data/gb/telecoms/gigabit.json').catch(() => null)]);
   if (token !== renderToken) return;
   if (!oa) { renderStats(null, [['–', 'telecoms data not built yet']]); return; }
   renderLegend(); fillSearch([]);
+  if (areaSel().length) { oa = oa.filter(p => inArea(p[0], p[1])); if (gig) gig = { ...gig, postcodes: gig.postcodes.filter(p => inArea(p[0], p[1])) }; }
   const oaDots = new DotLayer(oa, p => p[2] < 0 ? null : p[2] <= GIG_BREAKS[0] ? SM_RAMP[0] : smColour(p[2], GIG_BREAKS));
   const gpc = gig ? gig.postcodes : [];
   const gigDots = new DotLayer(gpc, () => GIG_PURPLE, { scale: 0.7, alpha: 0.5 });
   const update = () => {
-    const b = map.getBounds(), inB = p => b.contains([p[1], p[0]]);
+    const b = map.getBounds(), inB = p => areaSel().length || b.contains([p[1], p[0]]);
     let prem = 0, without = 0, inContract = 0, deferred = 0;
     for (const p of oa) if (inB(p)) { prem += p[4]; without += p[3]; }
     const pcs = gpc.filter(inB);
     for (const p of pcs) { inContract += p[2]; deferred += p[3]; }
     renderStats(null, [
       [without.toLocaleString(), `premises without gigabit (${prem ? Math.round(100 * without / prem) : 0}%)`],
-      [prem.toLocaleString(), 'premises in view'],
+      [prem.toLocaleString(), areaSel().length ? 'premises' : 'premises in view'],
       [inContract.toLocaleString(), 'premises in Project Gigabit contracts'],
       [new Set(pcs.map(p => p[6])).size, 'Project Gigabit contracts'],
     ]);
@@ -696,16 +707,10 @@ async function renderDigOnce(token) {
   if (token !== renderToken) return;
   if (!st && !s58) { renderStats(null, [['–', 'dig-once data not built yet']]); return; }
   renderLegend(); fillSearch([]);
-  const la = laFeature();
-  let rows = st ? st.points : [];  // [lon, lat, score, flags]; details per cell
+  const la = areaSel().length > 0;  // stats cover the selected area rather than the view
+  const rows = st ? st.points.filter(r => inArea(r[0], r[1])) : [];  // [lon, lat, score, flags]; details per cell
   const sectors = st ? st.sectors : [];
-  let s58Feats = s58 ? s58.features : [];
-  if (la) {
-    const lb = laBounds(la), inLa = (lon, lat) => lb.contains([lat, lon]) && inGeom(lon, lat, la.geometry);
-    rows = rows.filter(r => inLa(r[0], r[1]));
-    s58Feats = s58Feats.filter(f => { const c = L.geoJSON(f).getBounds().getCenter(); return inLa(c.lng, c.lat); });
-    document.getElementById('statsLabel').textContent = la.properties.name;
-  }
+  const s58Feats = s58 ? s58.features.filter(featInArea) : [];
   const digCell = key => (data['dig_cell_' + key] ||= fetch(`data/gb/digonce/cells/${key}.json`).then(r => r.ok ? r.json() : []));
   const dots = new DotLayer(rows, r => smColour(r[2], DIG_BREAKS));
   const restrictions = L.layerGroup();
@@ -726,7 +731,7 @@ async function renderDigOnce(token) {
     // with a local authority selected, the stats cover the whole authority rather than the view
     const b = map.getBounds(), inView = la ? rows : rows.filter(r => b.contains([r[1], r[0]]));
     const s58In = s58Feats.filter((f, i) => la || b.intersects(s58Boxes[i]));
-    if (la && !la.properties.code.startsWith('E')) renderStats(null, [['–', 'dig-once data covers England only']]);
+    if (la && !rows.length && !s58In.length) renderStats(null, [['–', 'no dig-once data here (it covers England only)']]);
     else renderStats(null, [
       [inView.length.toLocaleString(), 'streets with a dig-once signal'],
       [inView.filter(r => r[3] & 1).length.toLocaleString(), 'dug by 3+ utilities in a year'],
@@ -891,24 +896,102 @@ document.getElementById('showLicence').addEventListener('change', async e => {
   licenceLayer = L.geoJSON(fc, { style: { color: '#0b6bcb', weight: 1.2, fill: false, dashArray: '4 3' }, interactive: false }).addTo(map);
 });
 
-// Local authorities: upper tier (county / unitary = highway authority), with dig-once counts per authority
-const laFeature = () => (state.la && data.la && data.la.features.find(f => f.properties.code === state.la)) || null;
+// Area filter: a local authority (upper tier: county / unitary = highway authority) and/or a DNO licence area.
+// Every layer keeps only data inside the selection (both, when both are picked) and the rest of the map is dimmed.
+const LIC_NAMES = {
+  'SSE': 'SSEN North of Scotland', 'SSE (Southern)': 'SSEN Southern England',
+  'SPEN (SP Distribution)': 'SPEN Central and Southern Scotland', 'SPEN (SP MANWEB)': 'SPEN Manweb (Merseyside and North Wales)',
+  'NPG (Northern Electric)': 'Northern Powergrid North East', 'NPG (Yorkshire Electric)': 'Northern Powergrid Yorkshire',
+  'ENWL': 'Electricity North West', 'UKPN (London)': 'UKPN London', 'UKPN (East)': 'UKPN East', 'UKPN (South)': 'UKPN South East',
+  'WPD (Midlands)': 'NGED West Midlands', 'WPD (East Midlands)': 'NGED East Midlands',
+  'WPD (South Wales)': 'NGED South Wales', 'WPD (South West)': 'NGED South West',
+};
+const licName = n => LIC_NAMES[n] || n;
 const laBounds = f => (f._bounds ||= L.geoJSON(f).getBounds());
-function inRing(x, y, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+let areaMemo = [null, []];  // inArea() runs per point, so look the selection up once per change
+function areaSel() {
+  const key = `${state.la}|${state.lic}|${!!data.la}|${!!data.licence}`;
+  if (areaMemo[0] !== key) areaMemo = [key, [
+    state.la && data.la && data.la.features.find(f => f.properties.code === state.la),
+    state.lic && data.licence && data.licence.features.find(f => f.properties.name === state.lic)].filter(Boolean)];
+  return areaMemo[1];
+}
+const areaName = () => areaSel().map(f => f.properties.code ? f.properties.name : licName(f.properties.name)).join(' ∩ ');
+
+// Point-in-polygon by even-odd ray casting over all rings, with edges bucketed into latitude bands so large
+// authorities (thousands of vertices) stay fast against hundreds of thousands of points.
+function pipTester(geom) {
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates, edges = [];
+  let lo = Infinity, hi = -Infinity;
+  for (const poly of polys) for (const ring of poly) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    edges.push([ring[j][0], ring[j][1], ring[i][0], ring[i][1]]);
+    lo = Math.min(lo, ring[i][1]); hi = Math.max(hi, ring[i][1]);
   }
-  return inside;
+  const N = 512, h = (hi - lo) / N || 1, bands = Array.from({ length: N }, () => []);
+  const band = y => Math.min(N - 1, Math.max(0, Math.floor((y - lo) / h)));
+  for (const e of edges) for (let k = band(Math.min(e[1], e[3])); k <= band(Math.max(e[1], e[3])); k++) bands[k].push(e);
+  return (x, y) => {
+    if (y < lo || y > hi) return false;
+    let inside = false;
+    for (const [x1, y1, x2, y2] of bands[band(y)])
+      if ((y1 > y) !== (y2 > y) && x < (x2 - x1) * (y - y1) / (y2 - y1) + x1) inside = !inside;
+    return inside;
+  };
 }
-function inGeom(x, y, g) {
-  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-  return polys.some(p => inRing(x, y, p[0]) && !p.slice(1).some(h => inRing(x, y, h)));
+const inFeature = (f, lon, lat) => laBounds(f).contains([lat, lon]) && (f._pip ||= pipTester(f.geometry))(lon, lat);
+const inArea = (lon, lat) => { const sel = areaSel(); return !sel.length || sel.every(f => inFeature(f, lon, lat)); };
+
+// A feature is in the area if any of its vertices is (sampled), or, for areas, if it encloses the selection.
+const areaKey = () => `${state.la}|${state.lic}`;
+function featInArea(f) {
+  const sel = areaSel();
+  if (!sel.length) return true;
+  const key = areaKey();
+  if (f._area && f._area[0] === key) return f._area[1];
+  const g = f.geometry, coords = [];
+  const walk = c => typeof c[0] === 'number' ? coords.push(c) : c.forEach(walk);
+  if (g) walk(g.coordinates);
+  const step = Math.max(1, Math.floor(coords.length / 300));
+  let hit = false;
+  for (let i = 0; i < coords.length && !hit; i += step) hit = inArea(coords[i][0], coords[i][1]);
+  if (!hit && g && /Polygon/.test(g.type)) {  // e.g. a GSP area that wholly contains a small council
+    const c = laBounds(sel[0]).getCenter();
+    hit = inArea(c.lng, c.lat) && (f._pip ||= pipTester(g))(c.lng, c.lat);
+  }
+  f._area = [key, hit];
+  return hit;
 }
-function fillLaSelect(fc) {
-  document.getElementById('la').insertAdjacentHTML('beforeend', fc.features.map(({ properties: p }) =>
+// ~10 km grid squares (gas): keep a square if its centre or a corner is in the area
+const cellInArea = k => {
+  if (!areaSel().length) return true;
+  const [x, y] = k.split('_').map(Number);
+  return [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1]].some(([dx, dy]) => inArea((x + dx) * CELL_LON, (y + dy) * CELL_LAT));
+};
+
+function fillAreaSelects() {
+  if (data.la) document.getElementById('la').insertAdjacentHTML('beforeend', data.la.features.map(({ properties: p }) =>
     `<option value="${p.code}">${p.name}${p.streets ? ` · ${p.streets.toLocaleString()} dig-once streets` : ''}</option>`).join(''));
+  if (data.licence) document.getElementById('lic').insertAdjacentHTML('beforeend', data.licence.features
+    .map(f => f.properties.name).sort((a, b) => licName(a).localeCompare(licName(b)))
+    .map(n => `<option value="${n}">${licName(n)}</option>`).join(''));
+}
+function applyArea() {
+  if (areaShade) { map.removeLayer(areaShade); areaShade = null; }
+  const sel = areaSel();
+  document.getElementById('areaNote').style.display = sel.length ? '' : 'none';
+  if (sel.length) {
+    // dim everything outside each selected area (world ring with the area's outer rings as holes)
+    const world = [[-89, -179], [-89, 179], [89, 179], [89, -179]];
+    const outer = f => (f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates).map(p => p[0].map(([x, y]) => [y, x]));
+    areaShade = L.layerGroup(sel.map(f => L.polygon([world, ...outer(f)], { pane: 'la', interactive: false,
+      stroke: false, fillColor: '#1b1f24', fillOpacity: 0.28 }))
+      .concat(sel.map(f => L.geoJSON(f, { pane: 'la', interactive: false, style: { color: '#6a3d9a', weight: 2.5, fill: false } })))).addTo(map);
+    const b = sel.map(laBounds).reduce((a, x) => a.intersects(x) ? L.latLngBounds(
+      [Math.max(a.getSouth(), x.getSouth()), Math.max(a.getWest(), x.getWest())],
+      [Math.min(a.getNorth(), x.getNorth()), Math.min(a.getEast(), x.getEast())]) : a);
+    map.fitBounds(b, { padding: [20, 20] });
+  }
+  render(false);
 }
 document.getElementById('showLA').addEventListener('change', async e => {
   if (laLayer) { map.removeLayer(laLayer); laLayer = null; }
@@ -917,16 +1000,12 @@ document.getElementById('showLA').addEventListener('change', async e => {
   if (fc && e.target.checked) laLayer = L.geoJSON(fc, { pane: 'la', interactive: false,
     style: { color: '#6a3d9a', weight: 1, opacity: 0.7, fill: false } }).addTo(map);
 });
-document.getElementById('la').addEventListener('change', async e => {
-  state.la = e.target.value || null;
-  if (laHighlight) { map.removeLayer(laHighlight); laHighlight = null; }
-  const f = laFeature();
-  if (f) {
-    laHighlight = L.geoJSON(f, { pane: 'la', interactive: false,
-      style: { color: '#6a3d9a', weight: 3, fillColor: '#6a3d9a', fillOpacity: 0.05 } }).addTo(map);
-    map.fitBounds(laBounds(f), { padding: [20, 20] });
-  }
-  if (state.level === 'digonce') render(false);
+document.getElementById('la').addEventListener('change', e => { state.la = e.target.value || null; applyArea(); });
+document.getElementById('lic').addEventListener('change', e => { state.lic = e.target.value || null; applyArea(); });
+document.getElementById('areaClear').addEventListener('click', e => {
+  e.preventDefault(); state.la = state.lic = null;
+  document.getElementById('la').value = document.getElementById('lic').value = '';
+  applyArea();
 });
 
 document.getElementById('dno').addEventListener('change', e => {
@@ -940,7 +1019,7 @@ document.getElementById('dno').addEventListener('change', e => {
     .filter(([, m]) => m.counts).map(([d, m]) => `<option value="${d}">${m.title} (${d})</option>`).join(''));
   document.getElementById('showLicence').dispatchEvent(new Event('change'));
   render(true);
-  load('la', 'data/gb/la.geojson').then(fc => fc && fillLaSelect(fc));
+  Promise.all([load('la', 'data/gb/la.geojson'), load('licence', 'data/gb/licence_areas.geojson')]).then(fillAreaSelects);
 })();
 </script>
 </body>

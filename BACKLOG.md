@@ -27,23 +27,22 @@ existing build scripts are fine if the cloud environment's network allows them.
 
 ## Ready
 
-1. **Shareable links.** Keep the map state (layer, operator, local authority / licence area, dig-once minimum
-   score, zoom and centre) in the URL hash and restore it on load, so a view can be sent to a council.
-   Needs: `index.html` only.
-2. **Top streets list for dig once.** A sidebar panel listing the highest-scoring streets in view (or in the
+1. **Top streets list for dig once.** A sidebar panel listing the highest-scoring streets in view (or in the
    selected area): street, town, score, utilities involved; clicking one zooms to it and opens its popup. Respect
    the score slider and area filter. Needs: `index.html` + existing `data/gb/digonce/cells/` files.
-3. **Export dig-once streets as CSV** for the selected area (or view): USRN, street, town, highway authority,
+2. **Export dig-once streets as CSV** for the selected area (or view): USRN, street, town, highway authority,
    score, works past/planned by sector, restriction date. Needs: `index.html` only.
-4. **District councils in the area filter.** Add lower-tier local authority districts (ONS LAD Dec 2025 BGC, public
+3. **District councils in the area filter.** Add lower-tier local authority districts (ONS LAD Dec 2025 BGC, public
    ArcGIS) alongside the upper-tier list, e.g. a toggle "County/unitary | District". Needs: extend
    `build_gb_boundaries.py` (public data, no `data/raw/` needed for boundaries; per-district dig-once counts need
    the existing `data/gb/digonce/` outputs, which are in git).
-5. **Mobile pass.** Check the layout at phone width (sidebar over map, legend slider, popups); fix anything
+4. **Mobile pass.** Check the layout at phone width (sidebar over map, legend slider, popups); fix anything
    unusable. Needs: `index.html` only.
-6. **Vector tiles (first slice).** Plan the move of the heaviest layers to PMTiles with MapLibre (site is ~560 MB);
+5. **Vector tiles (first slice).** Plan the move of the heaviest layers to PMTiles with MapLibre (site is ~560 MB);
    first PR: a written plan in `docs/vector-tiles.md` plus a prototype for one layer behind a flag. Needs: research,
    `tippecanoe` may not be available in the cloud: say so if not.
+6. **Shareable links, part 2.** Also keep the drill-down (e.g. the BSPs under one GSP, a primary's secondaries)
+   and an open street popup (dig-once USRN) in the link. Needs: `index.html` only.
 
 ## Parked (owner decision needed)
 
@@ -59,3 +58,5 @@ existing build scripts are fine if the cloud environment's network allows them.
 
 - AWS hosting (S3 + CloudFront), local authority boundaries + area filter, dig-once score slider, dots that grow
   with zoom, dig-once streets drawn along the road (Oct 2026).
+- Shareable links: layer, colouring, operator, local authority / licence area, dig-once minimum score, zoom and
+  centre kept in the URL hash, plus a "Copy link to this view" link (PR_LINK).

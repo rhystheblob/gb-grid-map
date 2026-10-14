@@ -825,6 +825,7 @@ async function renderDigOnce(token) {
     drawRoads();
   };
   slider.addEventListener('input', setMin);
+  slider.disabled = false;  // drawn disabled until the streets have loaded, so an early move isn't lost
   setMin();
   dots.addTo(map);
   map.on('moveend', update); map.on('moveend', drawRoads); map.on('click', onClick);
@@ -857,7 +858,7 @@ function renderLegend(smBreaks, smUnit, smLabel) {
   if (state.level === 'digonce') {
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
       <div class="ramp-l"><span>one signal</span><span>several</span><span>strong case</span></div>
-      <input type="range" id="digMin" min="2" max="13" step="1" value="${state.digMin}" aria-label="Minimum dig-once score"
+      <input type="range" id="digMin" min="2" max="13" step="1" value="${state.digMin}" aria-label="Minimum dig-once score" disabled
         style="width:100%;margin:6px 0 0;accent-color:var(--accent)">
       <div class="sources" id="digMinLabel"></div>
       <div class="legend" style="margin-top:6px">

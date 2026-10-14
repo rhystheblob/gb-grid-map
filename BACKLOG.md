@@ -41,8 +41,8 @@ existing build scripts are fine if the cloud environment's network allows them.
 5. **Vector tiles (first slice).** Plan the move of the heaviest layers to PMTiles with MapLibre (site is ~560 MB);
    first PR: a written plan in `docs/vector-tiles.md` plus a prototype for one layer behind a flag. Needs: research,
    `tippecanoe` may not be available in the cloud: say so if not.
-6. **Shareable links, part 2.** Also keep the drill-down (e.g. the BSPs under one GSP, a primary's secondaries)
-   and an open street popup (dig-once USRN) in the link. Needs: `index.html` only.
+6. **Shareable links, part 2.** Links keep one drill-down level (the sites under one GSP/BSP) but not the full
+   breadcrumb trail or an open popup (e.g. a dig-once street by USRN); add those. Needs: `index.html` only.
 
 ## Parked (owner decision needed)
 
@@ -58,5 +58,5 @@ existing build scripts are fine if the cloud environment's network allows them.
 
 - AWS hosting (S3 + CloudFront), local authority boundaries + area filter, dig-once score slider, dots that grow
   with zoom, dig-once streets drawn along the road (Oct 2026).
-- Shareable links: layer, colouring, operator, local authority / licence area, dig-once minimum score, zoom and
-  centre kept in the URL hash, plus a "Copy link to this view" link (PR_LINK).
+- Shareable links: layer, colouring, operator, local authority / licence area, dig-once minimum score, drill-down,
+  zoom and centre kept in the URL hash, plus a "Copy link to this view" link (PR_LINK).

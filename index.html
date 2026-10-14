@@ -1137,6 +1137,7 @@ function applyHash(s) {
 // the drill-down in the link: the GSP or BSP whose sites are shown (one crumb back to it)
 async function restoreDrill(id) {
   if (!id || !['bsp', 'primary'].includes(state.level)) return;
+  if (!(await loadLevel(state.level)).features.some(x => x.properties.pid === id)) return;  // not a parent of this level
   for (const lvl of ['gsp', 'bsp']) {
     const f = (await loadLevel(lvl)).features.find(x => x.properties.id === id);
     if (f) { state.trail = [{ level: lvl, id, name: f.properties.name, child: state.level }]; state.filter = id; return; }

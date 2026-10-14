@@ -59,4 +59,4 @@ existing build scripts are fine if the cloud environment's network allows them.
 - AWS hosting (S3 + CloudFront), local authority boundaries + area filter, dig-once score slider, dots that grow
   with zoom, dig-once streets drawn along the road (Oct 2026).
 - Shareable links: layer, colouring, operator, local authority / licence area, dig-once minimum score, drill-down,
-  zoom and centre kept in the URL hash, plus a "Copy link to this view" link (PR_LINK).
+  zoom and centre kept in the URL hash, plus a "Copy link to this view" link (https://github.com/rhystheblob/gb-grid-map/pull/1).

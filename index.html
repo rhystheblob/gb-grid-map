@@ -68,6 +68,7 @@
   <aside>
     <h1>GB Grid Capacity Map</h1>
     <div class="sub">Electricity capacity, gas mains, water works and broadband build, and dig-once opportunities across Great Britain · from open data</div>
+    <div class="sources" style="margin:-8px 0 14px">The address bar keeps this view. <a href="#" id="copyLink">Copy link to this view</a></div>
 
     <div class="group">
       <div class="label">Network operator</div>
@@ -244,6 +245,7 @@ let renderToken = 0;  // a newer render() supersedes one still waiting on data
 
 async function render(fit) {
   const token = ++renderToken;
+  writeHash();
   if (areaLayer) { map.removeLayer(areaLayer); areaLayer = null; }
   if (secLayers) { secLayers.forEach(l => map.removeLayer(l)); secLayers = null; }
   if (secCleanup) { secCleanup(); secCleanup = null; }
@@ -818,10 +820,12 @@ async function renderDigOnce(token) {
     dots._pts = rows;
     if (map.hasLayer(dots)) dots._redraw();
     sliderLabel.textContent = `Score ${state.digMin}+ (${band(state.digMin)}): ${rows.length.toLocaleString()} streets`;
+    writeHash();
     update();
     drawRoads();
   };
   slider.addEventListener('input', setMin);
+  slider.disabled = false;  // drawn disabled until the streets have loaded, so an early move isn't lost
   setMin();
   dots.addTo(map);
   map.on('moveend', update); map.on('moveend', drawRoads); map.on('click', onClick);
@@ -854,7 +858,7 @@ function renderLegend(smBreaks, smUnit, smLabel) {
   if (state.level === 'digonce') {
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
       <div class="ramp-l"><span>one signal</span><span>several</span><span>strong case</span></div>
-      <input type="range" id="digMin" min="2" max="13" step="1" value="${state.digMin}" aria-label="Minimum dig-once score"
+      <input type="range" id="digMin" min="2" max="13" step="1" value="${state.digMin}" aria-label="Minimum dig-once score" disabled
         style="width:100%;margin:6px 0 0;accent-color:var(--accent)">
       <div class="sources" id="digMinLabel"></div>
       <div class="legend" style="margin-top:6px">
@@ -1047,7 +1051,7 @@ function fillAreaSelects() {
     .map(f => f.properties.name).sort((a, b) => licName(a).localeCompare(licName(b)))
     .map(n => `<option value="${n}">${licName(n)}</option>`).join(''));
 }
-function applyArea() {
+function applyArea(fit = true) {
   if (areaShade) { map.removeLayer(areaShade); areaShade = null; }
   const sel = areaSel();
   document.getElementById('areaNote').style.display = sel.length ? '' : 'none';
@@ -1061,7 +1065,7 @@ function applyArea() {
     const b = sel.map(laBounds).reduce((a, x) => a.intersects(x) ? L.latLngBounds(
       [Math.max(a.getSouth(), x.getSouth()), Math.max(a.getWest(), x.getWest())],
       [Math.min(a.getNorth(), x.getNorth()), Math.min(a.getEast(), x.getEast())]) : a);
-    map.fitBounds(b, { padding: [20, 20] });
+    if (fit) map.fitBounds(b, { padding: [20, 20] });
   }
   render(false);
 }
@@ -1085,14 +1089,103 @@ document.getElementById('dno').addEventListener('change', e => {
   render(!['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level));
 });
 
-(async () => {
+// Shareable links: layer, colouring, operator, area, dig-once minimum score and the map view live in the URL hash,
+// e.g. #layer=digonce&la=E10000014&min=4&map=12/51.2000/-0.5000 (defaults are left out); in= is the site drilled into
+const HASH_LEVELS = ['gsp', 'bsp', 'primary', 'secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'];
+const HASH_METRICS = ['dRAG', 'gRAG', 'dHead', 'gHead'];
+function readHash() {
+  const h = new URLSearchParams(location.hash.slice(1)), s = {};
+  if (HASH_LEVELS.includes(h.get('layer'))) s.level = h.get('layer');
+  if (HASH_METRICS.includes(h.get('colour'))) s.metric = h.get('colour');
+  if (h.get('op')) s.dno = h.get('op');
+  if (h.get('la')) s.la = h.get('la');
+  if (h.get('lic')) s.lic = h.get('lic');
+  if (h.get('in')) s.in = h.get('in');
+  const min = parseInt(h.get('min'), 10);
+  if (min >= 2 && min <= 13) s.digMin = min;
+  const [z, lat, lon] = (h.get('map') || '').split('/').map(v => v === '' ? NaN : +v);
+  if (isFinite(z) && Math.abs(lat) <= 85 && Math.abs(lon) <= 180) s.view = [[lat, lon], Math.max(0, Math.min(19, z))];
+  return s;
+}
+function writeHash() {
+  const h = new URLSearchParams();
+  if (state.level !== 'gsp') h.set('layer', state.level);
+  if (state.metric !== 'dRAG' && LEVELS[state.level]) h.set('colour', state.metric);  // capacity levels only
+  if (state.dno !== 'all') h.set('op', state.dno);
+  if (state.la) h.set('la', state.la);
+  if (state.lic) h.set('lic', state.lic);
+  if (state.filter) h.set('in', state.filter);
+  if (state.digMin !== 2 && state.level === 'digonce') h.set('min', state.digMin);
+  const c = map.getCenter(), z = map.getZoom();
+  const hash = '#' + [h.toString(), `map=${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`].filter(Boolean).join('&');
+  if (location.hash !== hash) try { history.replaceState(null, '', hash); } catch { /* browsers rate-limit history updates */ }
+}
+// state from a hash; a hash is a whole view, so anything it leaves out goes back to its default
+function applyHash(s) {
+  state.level = s.level || 'gsp'; state.metric = s.metric || 'dRAG'; state.digMin = s.digMin || 2;
+  state.dno = s.dno && (s.dno === 'all' || (Object.hasOwn(manifest, s.dno) && manifest[s.dno].counts)) ? s.dno : 'all';
+  state.la = s.la || null; state.lic = s.lic || null;  // checked against the boundaries once they load
+  state.trail = []; state.filter = null;
+  document.getElementById('dno').value = state.dno;
+  map.closePopup();
+  // take the current layer off first so it doesn't redraw at the new view
+  renderToken++;
+  if (secCleanup) { secCleanup(); secCleanup = null; }
+  if (areaLayer) { map.removeLayer(areaLayer); areaLayer = null; }
+  if (s.view) map.setView(...s.view);
+}
+// the drill-down in the link: the GSP or BSP whose sites are shown (one crumb back to it)
+async function restoreDrill(id) {
+  if (!id || !['bsp', 'primary'].includes(state.level)) return;
+  if (!(await loadLevel(state.level)).features.some(x => x.properties.pid === id)) return;  // not a parent of this level
+  for (const lvl of ['gsp', 'bsp']) {
+    const f = (await loadLevel(lvl)).features.find(x => x.properties.id === id);
+    if (f) { state.trail = [{ level: lvl, id, name: f.properties.name, child: state.level }]; state.filter = id; return; }
+  }
+}
+// select the area from the hash (unknown codes are dropped) and draw; fit to it unless the hash gave a view
+function restoreArea(fit) {
+  if (state.la && !(data.la && data.la.features.some(f => f.properties.code === state.la))) state.la = null;
+  if (state.lic && !(data.licence && data.licence.features.some(f => f.properties.name === state.lic))) state.lic = null;
+  document.getElementById('la').value = state.la || '';
+  document.getElementById('lic').value = state.lic || '';
+  applyArea(fit);
+}
+document.getElementById('copyLink').addEventListener('click', async e => {
+  e.preventDefault();
+  writeHash();
+  try { await navigator.clipboard.writeText(location.href); e.target.textContent = 'Link copied'; }
+  catch { prompt('Copy this link:', location.href); return; }
+  setTimeout(() => { e.target.textContent = 'Copy link to this view'; }, 2000);
+});
+
+const ready = (async () => {
   manifest = await load('manifest', 'data/gb/manifest.json') || {};
   document.getElementById('dno').insertAdjacentHTML('beforeend', Object.entries(manifest)
     .filter(([, m]) => m.counts).map(([d, m]) => `<option value="${d}">${m.title} (${d})</option>`).join(''));
   document.getElementById('showLicence').dispatchEvent(new Event('change'));
-  render(true);
-  Promise.all([load('la', 'data/gb/la.geojson'), load('licence', 'data/gb/licence_areas.geojson')]).then(fillAreaSelects);
 })();
+const boundaries = Promise.all([load('la', 'data/gb/la.geojson'), load('licence', 'data/gb/licence_areas.geojson')])
+  .then(fillAreaSelects).catch(() => {});
+(async () => {
+  await ready;
+  const s = readHash();
+  applyHash(s);
+  map.on('moveend', writeHash);
+  await restoreDrill(s.in);
+  // with an area in the link, wait for the boundaries so the first draw is already filtered
+  if (state.la || state.lic) { await boundaries; restoreArea(!s.view); }
+  else render(!s.view);
+})();
+// a link pasted into this tab's address bar
+window.addEventListener('hashchange', async () => {
+  await ready;
+  const s = readHash();
+  applyHash(s);
+  await restoreDrill(s.in);
+  await boundaries;
+  restoreArea(!s.view);
+});
 </script>
 </body>
 </html>

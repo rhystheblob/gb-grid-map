@@ -1,0 +1,53 @@
+{
+ "pilots": [
+  {
+   "id": "southall",
+   "name": "Southall (The Green)",
+   "network": "real",
+   "bounds": [
+    [
+     51.49452,
+     -0.388437
+    ],
+    [
+     51.515053,
+     -0.361788
+    ]
+   ],
+   "centre": [
+    51.50338,
+    -0.37739
+   ],
+   "homes": 4387,
+   "feeders": 82,
+   "subs": 31,
+   "la": "Ealing",
+   "primary": "The Green"
+  },
+  {
+   "id": "aberfeldy",
+   "name": "Aberfeldy (rural Perthshire)",
+   "network": "synthetic",
+   "bounds": [
+    [
+     56.591516,
+     -3.934487
+    ],
+    [
+     56.669097,
+     -3.71886
+    ]
+   ],
+   "centre": [
+    56.62599,
+    -3.85322
+   ],
+   "homes": 1917,
+   "feeders": 253,
+   "subs": 145,
+   "la": "Perth and Kinross",
+   "primary": "Aberfeldy"
+  }
+ ],
+ "source": "SSEN DFES 2025 (Regen), SSEN LV network and smart meter open data, OS Open UPRN, OS OpenMap Local, OpenStreetMap"
+}

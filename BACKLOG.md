@@ -44,6 +44,13 @@ existing build scripts are fine if the cloud environment's network allows them.
 6. **Shareable links, part 2.** Links keep one drill-down level (the sites under one GSP/BSP) but not the full
    breadcrumb trail or an open popup (e.g. a dig-once street by USRN); add those. Needs: `index.html` only.
 
+7. **Low carbon tech, GB-wide (tier 2).** Extend the LCT layer beyond the two pilots: each DNO's DFES at primary level
+   spread over the ~475k secondaries already on the map, storing per secondary and scenario the year it turns amber
+   and red, so the year slider colours all of GB. Needs: each DNO's DFES download (SSEN key; NGED/NPg open; UKPN,
+   ENWL, SPEN login), `data/gb/sec/`.
+8. **Low carbon tech: check the upgrade unit costs** in `LCT_A.cost` against Ofgem's RIIO-ED2 Secondary
+   Reinforcement and LV Services volume-driver unit rates (2026 decision, Appendix tables). Needs: Ofgem PDFs.
+
 ## Parked (owner decision needed)
 
 - **AI chatbot** that turns questions ("most likely dig-once locations in SSEN's area") into map filters. Needs a
@@ -54,9 +61,15 @@ existing build scripts are fine if the cloud environment's network allows them.
 - **Scotland roadworks** (SRWR): check whether Scottish Road Works Register data is open; England only today.
 - **Wales & West Utilities gas pipes**: none published yet; recheck occasionally.
 
+- **LCTs today per home from EPC certificates** (heat pumps, PV): needs a free EPC API key from
+  epc.opendatacommunities.org in `.env`; England and Wales only (Scotland has its own EPC register).
+- **More LCT pilots**: UKPN's LV cables are a "shared data" request; SSEN's full network lines are shared too.
+
 ## Done
 
 - AWS hosting (S3 + CloudFront), local authority boundaries + area filter, dig-once score slider, dots that grow
   with zoom, dig-once streets drawn along the road (Oct 2026).
 - Shareable links: layer, colouring, operator, local authority / licence area, dig-once minimum score, drill-down,
   zoom and centre kept in the URL hash, plus a "Copy link to this view" link (https://github.com/rhystheblob/gb-grid-map/pull/1).
+- Low carbon tech pilots (Nov 2026): building-level LCT uptake to 2050 on the LV network for Southall (real SSEN
+  LV) and Aberfeldy (synthetic LV), worst case vs optimised running, upgrades and costs (`build_gb_lct.py`).

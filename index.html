@@ -57,6 +57,17 @@
   .pop td:first-child { color: #5f6b7a; padding-right: 10px; white-space: nowrap; }
   .pop button { margin-top: 8px; padding: 5px 10px; border: 0; border-radius: 5px; background: #0b6bcb; color: #fff; cursor: pointer; }
   .pill { display: inline-block; padding: 0 6px; border-radius: 9px; color: #fff; font-size: 11px; }
+  .playbtn { width: 30px; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: transparent;
+    color: var(--ink); cursor: pointer; font-size: 12px; }
+  .perf { margin-top: 10px; font-size: 12px; }
+  .perf table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .perf th, .perf td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--line); }
+  .perf th:first-child, .perf td:first-child { text-align: left; color: var(--muted); font-weight: normal; }
+  .perf th { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .perf svg text { fill: var(--muted); font-size: 10px; }
+  details.assume { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  details.assume summary { cursor: pointer; color: var(--accent); }
+  details.assume li { margin: 2px 0; }
   @media (max-width: 760px) {
     #app { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
     aside { order: 2; border-right: 0; border-top: 1px solid var(--line); }
@@ -67,7 +78,7 @@
 <div id="app">
   <aside>
     <h1>GB Grid Capacity Map</h1>
-    <div class="sub">Electricity capacity, gas mains, water works and broadband build, and dig-once opportunities across Great Britain · from open data</div>
+    <div class="sub">Electricity capacity, low carbon tech to 2050, gas mains, water works and broadband build, and dig-once opportunities across Great Britain · from open data</div>
     <div class="sources" style="margin:-8px 0 14px">The address bar keeps this view. <a href="#" id="copyLink">Copy link to this view</a></div>
 
     <div class="group">
@@ -87,6 +98,37 @@
         <button data-level="water">Water</button>
         <button data-level="telecoms">Telecoms</button>
         <button data-level="digonce">Dig once</button>
+        <button data-level="lct">Low carbon tech</button>
+      </div>
+    </div>
+
+    <div class="group" id="lctPanel" style="display:none">
+      <div class="label">Pilot area (building level)</div>
+      <select id="lctPilot"></select>
+      <div class="label" style="margin-top:12px;display:flex;justify-content:space-between"><span>Year</span><b id="lctYearLabel" style="color:var(--ink);font-size:13px"></b></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="lctPlay" class="playbtn" aria-label="Play years">▶</button>
+        <input type="range" id="lctYear" min="2025" max="2050" step="1" value="2035" aria-label="Year" style="flex:1;accent-color:var(--accent)">
+      </div>
+      <div class="label" style="margin-top:12px">Uptake pathway</div>
+      <select id="lctPath">
+        <option value="EE">Electric Engagement (NESO FES / SSEN DFES 2025)</option>
+        <option value="HT">Holistic Transition (FES / DFES 2025)</option>
+        <option value="FB">Falling Behind (FES / DFES 2025)</option>
+        <option value="FE">Full electrification by 2050 (this map's stretch case)</option>
+      </select>
+      <div class="label" style="margin-top:12px">How the technology runs</div>
+      <div class="seg" id="lctOp">
+        <button data-op="worst">Worst case</button>
+        <button data-op="opt">Optimised</button>
+      </div>
+      <div class="label" style="margin-top:12px">Show</div>
+      <div class="seg" id="lctTech">
+        <button data-tech="all">All</button>
+        <button data-tech="gen">Generation</button>
+        <button data-tech="ev">Transport</button>
+        <button data-tech="heat">Heat</button>
+        <button data-tech="bat">Batteries / flex</button>
       </div>
     </div>
 
@@ -131,6 +173,7 @@
     <div class="group">
       <div class="label" id="statsLabel">In view</div>
       <div class="stats" id="stats"></div>
+      <div id="lctPerf" style="display:none"></div>
     </div>
 
     <div class="group note" id="levelNote"></div>
@@ -157,6 +200,7 @@ const NOTES = {
   telecoms: 'Telecoms networks (ducts, poles, cables) aren\'t open data. Shown instead: where gigabit broadband is still missing (Ofcom, Jan 2026, by census output area), i.e. where fibre has yet to be dug in, and the postcodes in Project Gigabit\'s subsidised build contracts (purple; England and Wales). Click a dot for details.',
   water: 'Water companies don\'t publish their pipe networks (the national register of buried pipes, NUAR, is invitation-only, mainly for asset owners and local authorities). Shown instead: water company areas and every storm overflow in England, coloured by when improvement works (new storage, bigger sewers, so excavation) are planned under the National Storm Overflows Plan.',
   gas: 'Metallic gas mains (cast, spun and ductile iron, and steel): the pipes being replaced under the iron mains programme, so the likeliest to be dug up in the next few years. Thick lines are already in the gas network\'s replacement programme. Zoomed out: km of metallic main per ~10 km square. Cadent, SGN and Northern Gas Networks (~38,000 km). Only Cadent publishes a replacement programme, so SGN and NGN mains are never thick. Wales & West Utilities publishes no pipe data yet.',
+  lct: 'Low carbon technologies on the LV network, home by home, from now to 2050, in two pilot areas: Southall (SSEN\'s real LV cables) and rural Aberfeldy (synthetic feeders along the roads). Dots are homes, coloured by the technology they have in the chosen year; lines are LV feeders and circles secondary substations, coloured by how loaded they would be on today\'s network (green, amber from 80%, red over 100%). Compare the worst case (everything at full power at once) with optimised running (smart charging, pre-heating, batteries and PV working with the network): the panel shows the upgrades each needs and what they cost. Uptake follows SSEN\'s DFES 2025 for each primary substation; which homes adopt first is modelled. Click a home, feeder or substation for details.',
   smart: 'Measured peak load from aggregated smart meters on two winter weekdays: SSEN, UKPN, NGED and NPg (~125k secondaries). Only substations with more than 5 smart meters are published.',
 };
 
@@ -180,6 +224,9 @@ let laLayer = null, areaShade = null;
 map.createPane('la');
 map.getPane('la').style.zIndex = 450;
 map.getPane('la').style.pointerEvents = 'none';
+// LV feeders and substations of the low carbon tech layer sit above its home dots
+map.createPane('lctNet');
+map.getPane('lctNet').style.zIndex = 430;
 
 const fmt = (v, u) => v == null || isNaN(v) ? '–' : `${(+v).toFixed(1)} ${u}`;
 const metricVal = (p, m) => m === 'dHead' ? p.dhead : p.ghead;
@@ -252,7 +299,7 @@ async function render(fit) {
   document.querySelectorAll('#levels button').forEach(b => b.classList.toggle('on', b.dataset.level === state.level));
   document.querySelectorAll('#metrics button').forEach(b => b.classList.toggle('on', b.dataset.metric === state.metric));
   // capacity metrics only exist for GSP/BSP/Primary; secondaries are coloured by smart meter load
-  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level) ? 'none' : '';
+  document.getElementById('metrics').parentElement.style.display = ['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce', 'lct'].includes(state.level) ? 'none' : '';
   document.getElementById('levelNote').textContent = NOTES[state.level];
   document.getElementById('statsLabel').textContent = areaName() || 'In view';
   renderCrumbs();
@@ -263,6 +310,7 @@ async function render(fit) {
   if (state.level === 'water') return renderWater(token);
   if (state.level === 'telecoms') return renderTelecoms(token);
   if (state.level === 'digonce') return renderDigOnce(token);
+  if (state.level === 'lct') return renderLct(token, fit);
 
   const cfg = LEVELS[state.level];
   await Promise.all(['gsp', 'bsp', 'primary'].map(loadLevel));  // child counts need every level
@@ -835,6 +883,393 @@ async function renderDigOnce(token) {
   update();
 }
 
+// ---------------------------------------------------------------- Low carbon technologies (building-level pilots)
+// Each home has a place in the queue (0-999) for each technology; a pathway gives, per year, the share of eligible
+// homes that have it, so a home has it in a year when its place < share x 999. Feeder and transformer loading is
+// then worked out in the browser for three moments: a winter evening peak, a winter night, and a sunny summer noon.
+const LCT_A = {
+  // kW per installation: [winter 17:30, winter 02:00] for demand, summer 13:00 for generation (negative = export)
+  worst: { hp: [3.0, 3.0], de: [3.0, 3.0], ev: [7.4, 7.4], os: [7.4, 7.4], bat: [3.68, 3.68], batNoon: -3.68, evNoon: 0, hpNoon: 0 },
+  opt:   { hp: [1.1, 0.9], de: [0.6, 2.2], ev: [0.1, 0.9], os: [1.5, 1.5], bat: [-1.8, 0.8], batNoon: 2.5, evNoon: 0.9, hpNoon: 0.3 },
+  baseShare: [1.0, 0.35, 0.3],      // non-LCT load at those moments, as a share of the measured winter peak
+  pvOut: 0.85,                       // PV output on a clear summer noon, share of rated kWp
+  batShave: 0.5,                     // optimised batteries can cover at most half of the evening load
+  hpSize: [1.3, 1.0, 0.85, 0.6],     // heat pump size by home type (detached, semi, terrace, flat)
+  kwp: [4.5, 3.5, 3.0, 0],           // rooftop PV kWp by home type (rural +15%)
+  vDemand: 6, vGen: 3,               // % voltage drop / rise allowed along an LV feeder
+  amber: 0.8,                        // loading that turns a feeder or transformer amber (red at 100%)
+  cost: { cableUrban: 200, cableRural: 90, gmtSwap: 45000, gmtNew: 120000, pmtSwap: 12000, pmtNew: 30000 },
+  gmt: [315, 500, 800, 1000], pmt: [25, 50, 100, 200],
+  wacc: 0.04, life: 45,              // network spend is recovered from bills over ~45 years
+  pvYield: { south: 950, north: 820 }, scBat: 0.35, scEv: 0.12,  // extra PV used at home with a battery / smart EV
+};
+const LCT_TECH = {
+  all:  { n: 'All', heat: 1, ev: 1, pv: 1, bat: 1 },
+  gen:  { n: 'Generation', pv: 1, c: '#e6b800' },
+  ev:   { n: 'Transport', ev: 1, c: '#1f6fd1' },
+  heat: { n: 'Heat', heat: 1, c: '#8e44ad' },
+  bat:  { n: 'Batteries / flex', bat: 1, c: '#d63384' },
+};
+const LCT_ALL_RAMP = ['#9bd3c5', '#3fa98f', '#167a66', '#0a4237'];  // homes with 1, 2, 3, 4+ technologies
+const LCT_PATHS = { EE: 'Electric Engagement', HT: 'Holistic Transition', FB: 'Falling Behind', FE: 'Full electrification' };
+state.lct = { pilot: 'southall', year: 2035, path: 'EE', op: 'worst', tech: 'all' };
+let lctIndex = null, lctPlayTimer = null;
+const ragColour = u => u == null ? getCss('--grey') : u > 1 ? RAG.Red : u >= LCT_A.amber ? RAG.Amber : RAG.Green;
+const gbp = v => v >= 1e6 ? `£${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)}m` : v >= 1e3 ? `£${Math.round(v / 1e3)}k` : `£${Math.round(v)}`;
+
+// voltage-equivalent loading limit (kVA) for a feeder with distributed load: %drop x 230 V x 692.8 / (100 x z x Leff)
+const vCap = (pct, f) => pct * 1.5934 / (f.z * f.leff);
+const feederCaps = f => ({ d: Math.min(f.kva, vCap(LCT_A.vDemand, f)), g: Math.min(f.kva, vCap(LCT_A.vGen, f)) });
+
+// per pathway and year, per feeder: [sum heat pump size, sum direct electric size, home chargers, PV kWp,
+// batteries, battery PV soak (kW), on-street chargers, kWp with battery, kWp with home charger, homes with an LCT]
+function lctAggregate(P, path) {
+  P._agg ||= {};
+  if (P._agg[path]) return P._agg[path];
+  const c = P.curves[path], nf = P.feeders.length, K = 10, rural = P.rural ? 1.15 : 1;
+  const agg = P.years.map((y, yi) => {
+    const a = new Float32Array(nf * K);
+    const th = { hp: c.hp[yi] * 999, ev: c.ev[yi] * 999, pv: c.pv[yi] * 999, bat: c.bat[yi] * 999, de: c.de[yi] * 999 };
+    for (const h of P.homes) {
+      const o = h[2] * K, hp = h[5] < th.hp, ev = h[6] < th.ev, pv = h[7] < th.pv, bat = h[8] < th.bat, de = !hp && h[10] < th.de;
+      const kwp = LCT_A.kwp[h[3]] * rural;
+      if (hp) a[o] += LCT_A.hpSize[h[3]];
+      if (de) a[o + 1] += LCT_A.hpSize[h[3]];
+      if (ev) a[o + 2] += 1;
+      if (pv) a[o + 3] += kwp;
+      if (bat) a[o + 4] += 1;
+      if (bat && pv) { a[o + 5] += Math.min(2.5, LCT_A.pvOut * kwp); a[o + 7] += kwp; }
+      if (ev && pv) a[o + 8] += kwp;
+      if (hp || ev || pv || bat || de) a[o + 9] += 1;
+    }
+    for (let i = 0; i < Math.min(c.os[yi], P.onstreet.length); i++) a[P.onstreet[i][2] * K + 6] += 1;
+    return a;
+  });
+  return (P._agg[path] = agg);
+}
+
+// loads on one feeder: evening, night, noon net (kW; noon negative = export)
+function feederLoads(P, f, a, o, op, inc) {
+  const A = LCT_A[op], s = LCT_A.baseShare;
+  const hp = inc.heat ? a[o] : 0, de = inc.heat ? a[o + 1] : 0, ev = inc.ev ? a[o + 2] : 0, os = inc.ev ? a[o + 6] : 0;
+  const kwp = inc.pv ? a[o + 3] : 0, bat = inc.bat ? a[o + 4] : 0, soak = inc.bat && inc.pv ? a[o + 5] : 0;
+  let eve = f.base * s[0] + A.hp[0] * hp + A.de[0] * de + A.ev[0] * ev + A.os[0] * os;
+  eve += op === 'opt' ? -Math.min(-A.bat[0] * bat, LCT_A.batShave * eve) : A.bat[0] * bat;
+  const night = f.base * s[1] + A.hp[1] * hp + A.de[1] * de + A.ev[1] * ev + A.os[1] * os + A.bat[1] * bat;
+  const noon = f.base * s[2] + A.hpNoon * hp + A.evNoon * ev - LCT_A.pvOut * kwp + (op === 'opt' ? soak : A.batNoon * bat);
+  return [eve, night, noon];
+}
+
+// one pass over the years for a pathway / technology filter: loading per feeder and substation for both ways of
+// running, and the upgrades each would need (feeder split, transformer swap, new substation) with their cost
+function lctSimulate(P, path, tech) {
+  const key = path + '|' + tech;
+  P._sim ||= {};
+  if (P._sim[key]) return P._sim[key];
+  const agg = lctAggregate(P, path), inc = LCT_TECH[tech], K = 10, A = LCT_A;
+  const caps = P.feeders.map(feederCaps);
+  const out = {};
+  for (const op of ['worst', 'opt']) {
+    const fState = P.feeders.map((f, i) => ({ d: caps[i].d, g: caps[i].g, n: 0, first: null }));
+    const sState = P.subs.map(s => ({ kva: s[3], n: 0, first: null, kind: s[4] }));
+    const years = P.years.map((y, yi) => {
+      const a = agg[yi];
+      const fU = new Float32Array(P.feeders.length), fD = new Float32Array(P.feeders.length), fG = new Float32Array(P.feeders.length);
+      const sum = P.subs.map(() => [0, 0, 0]);
+      let cost = 0, nF = 0, nS = 0;
+      P.feeders.forEach((f, i) => {
+        const [eve, night, noon] = feederLoads(P, f, a, i * K, op, inc);
+        const d = Math.max(eve, night), g = Math.max(0, -noon);
+        fD[i] = d; fG[i] = g;
+        fU[i] = Math.max(d / caps[i].d, g / caps[i].g);   // loading against today's network (what the colours show)
+        const ss = sum[f.sub]; ss[0] += eve; ss[1] += night; ss[2] += noon;
+        const st = fState[i];
+        let guard = 0;
+        while ((d > st.d || g > st.g) && guard++ < 4) {   // split the feeder: new cable to about half way
+          st.d *= 1.8; st.g *= 1.8; st.n++; nF++;
+          st.first ??= y;
+          cost += (f.oh ? A.cost.cableRural : A.cost.cableUrban) * Math.max(50, Math.min(600, 0.5 * f.main_m));
+        }
+      });
+      const sU = new Float32Array(P.subs.length);
+      P.subs.forEach((s, j) => {
+        const [eve, night, noon] = sum[j], load = Math.max(eve, night, -noon);
+        sU[j] = load / s[3];
+        const st = sState[j], ladder = st.kind === 'PMT' ? A.pmt : A.gmt;
+        let guard = 0;
+        while (load > st.kva && guard++ < 6) {
+          const next = ladder.find(k => k > st.kva);
+          if (next) { st.kva = next; cost += st.kind === 'PMT' ? A.cost.pmtSwap : A.cost.gmtSwap; }
+          else { st.kva += ladder[ladder.length - 1]; cost += st.kind === 'PMT' ? A.cost.pmtNew : A.cost.gmtNew; }
+          st.n++; nS++; st.first ??= y;
+        }
+      });
+      const peak = Math.max(sum.reduce((t, x) => t + x[0], 0), sum.reduce((t, x) => t + x[1], 0));
+      const exportPeak = Math.max(0, -sum.reduce((t, x) => t + x[2], 0));
+      return { fU, sU, fD, fG, cost, nF, nS, peak, exportPeak };
+    });
+    let cum = 0, cF = 0, cS = 0;
+    years.forEach(r => { cum += r.cost; cF += r.nF; cS += r.nS; r.cumCost = cum; r.cumF = cF; r.cumS = cS; });
+    out[op] = { years, fState, sState };
+  }
+  return (P._sim[key] = out);
+}
+
+const lctPilotCache = {};
+const lctLoadPilot = id => lctPilotCache[id] ||= fetch(`data/gb/lct/${id}.json`).then(r => r.ok ? r.json() : null);
+const lctAdoptYear = (P, path, tech, rank) => {
+  if (rank >= 999) return null;
+  const c = P.curves[path][tech], yi = c.findIndex(v => rank < v * 999);
+  return yi < 0 ? null : P.years[yi];
+};
+const HOME_TYPES = ['Detached house', 'Semi-detached house', 'Terraced house', 'Flat'];
+
+function lctHomePopup(P, h) {
+  const L_ = state.lct, f = P.feeders[h[2]], s = P.subs[f.sub];
+  const yr = (tech, r) => { const y = lctAdoptYear(P, L_.path, tech, r); return y == null ? 'not by 2050' : y <= 2025 ? 'today (estimated)' : 'from ' + y; };
+  const hpY = lctAdoptYear(P, L_.path, 'hp', h[5]), deY = lctAdoptYear(P, L_.path, 'de', h[10]);
+  return `<div class="pop"><h3>${HOME_TYPES[h[3]]}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">${P.name} · ${LCT_PATHS[L_.path]} pathway</div>
+    <table><tr><td>Heat pump</td><td>${yr('hp', h[5])}</td></tr>
+    ${deY && (!hpY || deY < hpY) ? `<tr><td>Electric heating</td><td>from ${deY}${hpY ? ` (heat pump from ${hpY})` : ''}</td></tr>` : ''}
+    <tr><td>EV home charger</td><td>${h[4] ? yr('ev', h[6]) : 'no off-street parking (charges on-street)'}</td></tr>
+    <tr><td>Rooftop PV</td><td>${h[3] === 3 ? 'flat (no own roof)' : yr('pv', h[7])}</td></tr>
+    <tr><td>Home battery</td><td>${h[3] === 3 ? '–' : yr('bat', h[8])}</td></tr>
+    <tr><td>LV feeder</td><td>${f.name}</td></tr><tr><td>Substation</td><td>${s[2]}</td></tr></table>
+    <div class="note" style="margin-top:6px">Which homes adopt first is modelled (house type, parking, roof size, a random draw), not known: SSEN's DFES gives the totals.</div></div>`;
+}
+
+function lctFeederPopup(P, i) {
+  const f = P.feeders[i], s = P.subs[f.sub], L_ = state.lct, sim = lctSimulate(P, L_.path, L_.tech);
+  const yi = P.years.indexOf(L_.year), caps = feederCaps(f);
+  const row = op => { const r = sim[op].years[yi]; return `${Math.round(r.fD[i])} kW / ${Math.round(r.fG[i])} kW · ${Math.round(100 * r.fU[i])}%`; };
+  const up = op => { const st = sim[op].fState[i]; return st.first ? `${st.n} split${st.n > 1 ? 's' : ''}, first ${st.first}` : 'none by 2050'; };
+  return `<div class="pop"><h3>${f.name}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">LV feeder · ${s[2]} · ${f.real ? 'real SSEN network' : 'synthetic route'}</div>
+    <table><tr><td>Cable</td><td>${f.cable}</td></tr>
+    <tr><td>Thermal rating</td><td>${f.kva} kVA</td></tr>
+    <tr><td>Limit for voltage</td><td>${Math.round(caps.d)} kVA demand · ${Math.round(caps.g)} kVA export (${f.far_m} m to the furthest home)</td></tr>
+    <tr><td>Homes</td><td>${f.homes}</td></tr>
+    <tr><td>Today's peak</td><td>${Math.round(f.base)} kW (${f.base_src}${f.meters ? `: ${f.peak} kW from ${f.meters} meters` : ''})</td></tr>
+    <tr><td>${L_.year} worst case</td><td>${row('worst')}</td></tr>
+    <tr><td>${L_.year} optimised</td><td>${row('opt')}</td></tr>
+    <tr><td>Upgrades, worst case</td><td>${up('worst')}</td></tr>
+    <tr><td>Upgrades, optimised</td><td>${up('opt')}</td></tr></table>
+    <div class="note" style="margin-top:6px">Demand / export at the busiest moment, and loading against today's cable (the larger of the two). ${LCT_TECH[L_.tech].n === 'All' ? '' : `Only ${LCT_TECH[L_.tech].n.toLowerCase()} is counted (Show).`}</div></div>`;
+}
+
+function lctSubPopup(P, j) {
+  const s = P.subs[j], L_ = state.lct, sim = lctSimulate(P, L_.path, L_.tech), yi = P.years.indexOf(L_.year);
+  const up = op => { const st = sim[op].sState[j]; return st.first ? `${st.n} (first ${st.first}), ends at ${st.kva} kVA` : 'none by 2050'; };
+  const nF = P.feeders.filter(f => f.sub === j).length;
+  return `<div class="pop"><h3>${s[2]}</h3>
+    <div style="color:#5f6b7a;margin-bottom:6px">Secondary substation · ${s[4] === 'PMT' ? 'pole-mounted' : 'ground-mounted'} · ${nF} feeder${nF > 1 ? 's' : ''} · NRN ${s[7]}</div>
+    <table><tr><td>Transformer</td><td>${s[3]} kVA (assumed: SSEN publishes no ratings)</td></tr>
+    <tr><td>Smart meter peak</td><td>${s[5] != null ? `${s[5]} kW from ${s[6]} meters` : '–'}</td></tr>
+    <tr><td>${L_.year} loading</td><td>worst case ${Math.round(100 * sim.worst.years[yi].sU[j])}% · optimised ${Math.round(100 * sim.opt.years[yi].sU[j])}%</td></tr>
+    <tr><td>Upgrades, worst case</td><td>${up('worst')}</td></tr>
+    <tr><td>Upgrades, optimised</td><td>${up('opt')}</td></tr></table></div>`;
+}
+
+function lctChart(P, sim, year) {
+  const W = 300, H = 128, l = 34, r = 8, t = 10, b = 20;
+  const yrs = P.years, max = Math.max(1, ...sim.worst.years.map(x => x.cumCost));
+  const x = y => l + (W - l - r) * (y - yrs[0]) / (yrs[yrs.length - 1] - yrs[0]);
+  const y = v => t + (H - t - b) * (1 - v / max);
+  const line = (op, col) => `<polyline fill="none" stroke="${col}" stroke-width="2" points="${sim[op].years.map((d, i) => `${x(yrs[i]).toFixed(1)},${y(d.cumCost).toFixed(1)}`).join(' ')}"/>`;
+  const ticks = [0, max / 2, max].map(v => `<text x="${l - 4}" y="${y(v) + 3}" text-anchor="end">${gbp(v)}</text>`).join('');
+  const xt = [2025, 2030, 2040, 2050].map(v => `<text x="${x(v)}" y="${H - 6}" text-anchor="${v === 2050 ? 'end' : v === 2025 ? 'start' : 'middle'}">${v}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Cumulative upgrade cost, worst case against optimised">
+    <line x1="${l}" x2="${W - r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>
+    <line x1="${x(year)}" x2="${x(year)}" y1="${t}" y2="${H - b}" stroke="var(--muted)" stroke-dasharray="2 3"/>
+    ${line('worst', RAG.Red)}${line('opt', RAG.Green)}${ticks}${xt}</svg>`;
+}
+
+async function renderLct(token, fit) {
+  const panel = document.getElementById('lctPanel'), perfEl = document.getElementById('lctPerf');
+  lctIndex ||= await load('lct_index', 'data/gb/lct/index.json').catch(() => null);
+  if (token !== renderToken) return;
+  if (!lctIndex) { renderStats(null, [['–', 'low carbon tech data not built yet']]); return; }
+  const sel = document.getElementById('lctPilot');
+  if (!sel.options.length) sel.innerHTML = lctIndex.pilots.map(p => `<option value="${p.id}">${p.name} · ${p.network} LV</option>`).join('');
+  if (!lctIndex.pilots.some(p => p.id === state.lct.pilot)) state.lct.pilot = lctIndex.pilots[0].id;
+  const P = await lctLoadPilot(state.lct.pilot);
+  if (token !== renderToken || !P) return;
+  panel.style.display = ''; perfEl.style.display = '';
+  sel.value = P.id;
+  document.getElementById('statsLabel').textContent = areaName() ? `${P.name} · within ${areaName()}` : P.name;
+  const L_ = state.lct;
+  L_.year = Math.min(2050, Math.max(2025, L_.year));
+  document.getElementById('lctYear').value = L_.year;
+  document.getElementById('lctPath').value = L_.path;
+  document.querySelectorAll('#lctOp button').forEach(b => b.classList.toggle('on', b.dataset.op === L_.op));
+  document.querySelectorAll('#lctTech button').forEach(b => b.classList.toggle('on', b.dataset.tech === L_.tech));
+  fillSearch([]);
+  if (fit) map.fitBounds(P.bounds, { padding: [20, 20], maxZoom: 16 });
+
+  // area filter: keep homes, feeders and substations inside the selected area
+  const subIn = P.subs.map(s => inArea(s[0], s[1]));
+  const homesIn = P.homes.filter(h => inArea(h[0], h[1]));
+  const otherPilots = lctIndex.pilots.filter(p => p.id !== P.id);
+  const others = L.layerGroup(otherPilots.map(p => L.circleMarker(p.centre, { radius: 9, color: '#1b1f24', weight: 1.5, fillColor: '#ffffff', fillOpacity: 0.9 })
+    .bindTooltip(`${p.name}: ${p.homes.toLocaleString()} homes, ${p.network} LV network. Click to open.`)
+    .on('click', () => { state.lct.pilot = p.id; render(true); })));
+
+  const blocks = L.layerGroup(P.blocks.map(r => L.polygon(r.map(([x, y]) => [y, x]), { stroke: false, fillColor: '#8a94a3', fillOpacity: 0.18, interactive: false })));
+  const feederLayers = P.feeders.map((f, i) => {
+    const g = L.layerGroup();
+    if (!subIn[f.sub]) return g;
+    const mains = L.polyline(f.mains.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', weight: 3.5, opacity: 0.95, lineCap: 'round', bubblingMouseEvents: false });
+    const svc = f.svc && f.svc.length ? L.polyline(f.svc.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', weight: 1, opacity: 0.6, interactive: false }) : null;
+    mains.bindPopup(() => lctFeederPopup(P, i), { maxWidth: 400 }).bindTooltip(`${f.name} · ${P.subs[f.sub][2]}`, { sticky: true });
+    g.addLayer(mains); if (svc) g.addLayer(svc);
+    g._lines = [mains, svc].filter(Boolean);
+    return g;
+  });
+  const subLayer = L.layerGroup(P.subs.map((s, j) => subIn[j] ? L.circleMarker([s[1], s[0]], { pane: 'lctNet', radius: s[4] === 'PMT' ? 4.5 : 6.5, color: '#1b1f24', weight: 1.4, fillOpacity: 1, bubblingMouseEvents: false })
+    .bindPopup(() => lctSubPopup(P, j), { maxWidth: 380 }).bindTooltip(s[2]) : null).filter(Boolean));
+  const subMarkers = []; subLayer.eachLayer(m => subMarkers.push(m));
+  const subIdx = P.subs.map((s, j) => j).filter(j => subIn[j]);
+  const osLayer = L.layerGroup();
+
+  // homes coloured by the technologies they have in the chosen year (dots; click for the home's timeline)
+  let th = null;
+  const homeColour = h => {
+    const inc = LCT_TECH[L_.tech];
+    const hp = h[5] < th.hp, de = !hp && h[10] < th.de, ev = h[6] < th.ev, pv = h[7] < th.pv, bat = h[8] < th.bat;
+    if (L_.tech === 'all') { const n = hp + de + ev + pv + bat; return n ? LCT_ALL_RAMP[Math.min(4, n) - 1] : null; }
+    const on = (inc.heat && (hp || de)) || (inc.ev && ev) || (inc.pv && pv) || (inc.bat && bat);
+    return on ? inc.c : null;
+  };
+  const dots = new DotLayer(homesIn, homeColour, { scale: 0.45 });
+
+  const draw = () => {
+    const yi = P.years.indexOf(L_.year), c = P.curves[L_.path];
+    th = { hp: c.hp[yi] * 999, ev: c.ev[yi] * 999, pv: c.pv[yi] * 999, bat: c.bat[yi] * 999, de: c.de[yi] * 999 };
+    const sim = lctSimulate(P, L_.path, L_.tech), r = sim[L_.op].years[yi], rw = sim.worst.years[yi], ro = sim.opt.years[yi];
+    document.getElementById('lctYearLabel').textContent = L_.year;
+    feederLayers.forEach((g, i) => (g._lines || []).forEach(l => l.setStyle({ color: ragColour(r.fU[i]) })));
+    subMarkers.forEach((m, k) => m.setStyle({ fillColor: ragColour(r.sU[subIdx[k]]) }));
+    osLayer.clearLayers();
+    if (L_.tech === 'all' || L_.tech === 'ev')
+      P.onstreet.slice(0, c.os[yi]).forEach(s => inArea(s[0], s[1]) && osLayer.addLayer(L.circleMarker([s[1], s[0]],
+        { pane: 'lctNet', radius: 3.2, color: '#ffffff', weight: 1, fillColor: LCT_TECH.ev.c, fillOpacity: 1, interactive: false })));
+    dots._redraw && map.hasLayer(dots) && dots._redraw();
+
+    // stats for the area (homes, feeders, substations inside it)
+    const fIn = P.feeders.map((f, i) => i).filter(i => subIn[P.feeders[i].sub]);
+    const count = (arr, idx, lo, hi) => idx.filter(i => arr[i] >= lo && arr[i] < hi).length;
+    const withLct = homesIn.filter(h => homeColour(h)).length;
+    const sumAgg = k => P.feeders.reduce((t, f, i) => t + lctAggregate(P, L_.path)[yi][i * 10 + k], 0);  // whole pilot
+    const rural = P.rural ? 1.15 : 1;
+    const kwpIn = homesIn.reduce((t, h) => t + (h[7] < th.pv ? LCT_A.kwp[h[3]] * rural : 0), 0);
+    const chgIn = homesIn.filter(h => h[6] < th.ev).length;
+    const osIn = P.onstreet.slice(0, c.os[yi]).filter(s => inArea(s[0], s[1])).length;
+    renderStats(null, [
+      [`${withLct.toLocaleString()} / ${homesIn.length.toLocaleString()}`, L_.tech === 'all' ? 'homes with low carbon tech' : `homes with ${LCT_TECH[L_.tech].n.toLowerCase()}`],
+      [`${Math.round(kwpIn).toLocaleString()} kWp`, `rooftop PV · ${chgIn.toLocaleString()} home + ${osIn} street EV chargers`],
+      [`${count(r.fU, fIn, 1, 1e9)} red · ${count(r.fU, fIn, LCT_A.amber, 1)} amber`, `of ${fIn.length} LV feeders (${L_.op === 'opt' ? 'optimised' : 'worst case'})`],
+      [`${count(r.sU, subIdx, 1, 1e9)} red · ${count(r.sU, subIdx, LCT_A.amber, 1)} amber`, `of ${subIdx.length} substations`],
+    ]);
+    // performance: upgrades and cost by the chosen year, worst case against optimised (whole pilot)
+    const homes = P.homes.length, ann = LCT_A.wacc / (1 - (1 + LCT_A.wacc) ** -LCT_A.life);
+    const save = rw.cumCost - ro.cumCost;
+    const yieldKwh = P.rural ? LCT_A.pvYield.north : LCT_A.pvYield.south;
+    const kept = (sumAgg(7) * LCT_A.scBat + sumAgg(8) * LCT_A.scEv) * yieldKwh / 1000;
+    const gb = save / homes * 28.4e6;
+    perfEl.innerHTML = `<div class="perf">
+      <div class="label" style="margin:10px 0 4px">Upgrades needed by ${L_.year} · whole pilot</div>
+      <table><tr><th></th><th style="color:${RAG.Red}">Worst case</th><th style="color:${RAG.Green}">Optimised</th></tr>
+      <tr><td>Feeder splits</td><td>${rw.cumF}</td><td>${ro.cumF}</td></tr>
+      <tr><td>Transformer upgrades</td><td>${rw.cumS}</td><td>${ro.cumS}</td></tr>
+      <tr><td>Upgrade cost</td><td>${gbp(rw.cumCost)}</td><td>${gbp(ro.cumCost)}</td></tr>
+      <tr><td>Peak demand</td><td>${(rw.peak / 1000).toFixed(2)} MW</td><td>${(ro.peak / 1000).toFixed(2)} MW</td></tr>
+      <tr><td>Peak export</td><td>${(rw.exportPeak / 1000).toFixed(2)} MW</td><td>${(ro.exportPeak / 1000).toFixed(2)} MW</td></tr></table>
+      <div class="stats" style="margin-top:8px">
+        <div class="stat"><b>${gbp(Math.max(0, save))}</b><span>network upgrades avoided by optimising</span></div>
+        <div class="stat"><b>£${Math.round(Math.max(0, save) / homes).toLocaleString()}</b><span>per home (≈ £${(Math.max(0, save) / homes * ann).toFixed(0)} a year on bills)</span></div>
+        <div class="stat"><b>${(Math.max(0, rw.peak - ro.peak) / 1000).toFixed(2)} MW</b><span>flexibility: evening/night peak shifted</span></div>
+        <div class="stat"><b>${Math.round(kept).toLocaleString()} MWh</b><span>PV a year used at home, not exported</span></div>
+      </div>
+      <div class="label" style="margin:10px 0 2px">Cumulative upgrade cost</div>
+      ${lctChart(P, sim, L_.year)}
+      <div class="sources">Illustrative: at this pilot's saving per home, GB's 28.4m homes would avoid ~£${(Math.max(0, gb) / 1e9).toFixed(1)}bn of LV upgrades by ${L_.year}.</div>
+      <details class="assume"><summary>Model assumptions</summary><ul>
+        <li>Worst case: every heat pump (${LCT_A.worst.hp[0]} kW for a semi), home charger (${LCT_A.worst.ev[0]} kW), battery charging (${LCT_A.worst.bat[0]} kW) and on-street charger at full power at the same time; on a sunny noon every PV system at ${LCT_A.pvOut * 100}% and every battery exporting ${-LCT_A.worst.batNoon} kW. An upper bound: real unmanaged load sits between the two cases.</li>
+        <li>Optimised: heat pumps pre-heat and run diversified (${LCT_A.opt.hp[0]} kW at the evening peak), EVs charge overnight (${LCT_A.opt.ev[1]} kW average) or from PV, batteries cover up to half the evening load and soak up to 2.5 kW of PV at noon.</li>
+        <li>Today's load: measured smart meter peaks (SSEN, 14/21 Jan 2026), plus a typical home's peak for homes without data. Night = ${LCT_A.baseShare[1] * 100}% and summer noon = ${LCT_A.baseShare[2] * 100}% of it.</li>
+        <li>Feeder limit: the lower of the cable's thermal rating and a ${LCT_A.vDemand}% voltage drop (${LCT_A.vGen}% rise for export) along the feeder. Red over 100%, amber from ${LCT_A.amber * 100}%.</li>
+        <li>Upgrade costs (indicative, 2025 prices): feeder split £${LCT_A.cost.cableUrban}/m urban, £${LCT_A.cost.cableRural}/m rural (new cable to half way, +80% capacity); transformer swap £${LCT_A.cost.gmtSwap / 1000}k ground / £${LCT_A.cost.pmtSwap / 1000}k pole; new substation £${LCT_A.cost.gmtNew / 1000}k / £${LCT_A.cost.pmtNew / 1000}k. Bills: recovered over ${LCT_A.life} years at ${LCT_A.wacc * 100}%.</li>
+        <li>Uptake: SSEN DFES 2025 counts for the primary, less new-build homes' share; which homes adopt first is modelled. Full electrification: every home with a heat pump, a charger at every home with parking, PV on 60% of houses by 2050.</li>
+      </ul></details></div>`;
+    writeHash();
+  };
+
+  // click a home dot: nearest home within a few pixels
+  const onClick = e => {
+    const c = map.latLngToContainerPoint(e.latlng);
+    let best = null, bd = dots.hitRadius2();
+    for (const h of homesIn) {
+      if (Math.abs(h[1] - e.latlng.lat) > 0.01 || Math.abs(h[0] - e.latlng.lng) > 0.02) continue;
+      const q = map.latLngToContainerPoint([h[1], h[0]]), d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
+      if (d < bd) { bd = d; best = h; }
+    }
+    if (best) L.popup({ maxWidth: 360 }).setLatLng([best[1], best[0]]).setContent(lctHomePopup(P, best)).openOn(map);
+  };
+  const zoomBlocks = () => { if (map.getZoom() >= 15) blocks.addTo(map); else map.removeLayer(blocks); };
+
+  P._draw = draw;
+  renderLegend();
+  draw();  // sets colours (and the thresholds the home dots need) before anything is drawn
+  zoomBlocks();
+  feederLayers.forEach(g => g.addTo(map));
+  dots.addTo(map);
+  osLayer.addTo(map);
+  subLayer.addTo(map);
+  others.addTo(map);
+  map.on('click', onClick); map.on('zoomend', zoomBlocks);
+  if (!homesIn.length) renderStats(null, [['–', `no homes of the ${P.name} pilot in the selected area`]]);
+  secCleanup = () => {
+    map.off('click', onClick); map.off('zoomend', zoomBlocks);
+    [blocks, dots, osLayer, subLayer, others, ...feederLayers].forEach(l => map.removeLayer(l));
+    panel.style.display = 'none'; perfEl.style.display = 'none'; perfEl.innerHTML = '';
+    P._draw = null; lctStop();
+  };
+}
+
+function lctRedraw() {
+  const P = lctPilotCache[state.lct.pilot];
+  if (P && P.then) P.then(p => p && p._draw && p._draw());
+}
+function lctStop() { if (lctPlayTimer) { clearInterval(lctPlayTimer); lctPlayTimer = null; } document.getElementById('lctPlay').textContent = '▶'; }
+document.getElementById('lctYear').addEventListener('input', e => { state.lct.year = +e.target.value; lctRedraw(); });
+document.getElementById('lctPath').addEventListener('change', e => { state.lct.path = e.target.value; lctRedraw(); });
+document.getElementById('lctPilot').addEventListener('change', e => { state.lct.pilot = e.target.value; render(true); });
+document.getElementById('lctOp').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.lct.op = b.dataset.op;
+  document.querySelectorAll('#lctOp button').forEach(x => x.classList.toggle('on', x === b));
+  lctRedraw();
+});
+document.getElementById('lctTech').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.lct.tech = b.dataset.tech;
+  document.querySelectorAll('#lctTech button').forEach(x => x.classList.toggle('on', x === b));
+  renderLegend(); lctRedraw();
+});
+document.getElementById('lctPlay').addEventListener('click', () => {
+  if (lctPlayTimer) return lctStop();
+  if (state.lct.year >= 2050) state.lct.year = 2024;
+  document.getElementById('lctPlay').textContent = '❚❚';
+  const step = () => {
+    if (state.lct.year >= 2050) return lctStop();
+    state.lct.year++;
+    document.getElementById('lctYear').value = state.lct.year; lctRedraw();
+  };
+  step();
+  lctPlayTimer = setInterval(step, 650);
+});
+
 function renderStats(props, custom) {
   const el = document.getElementById('stats');
   if (custom) { el.innerHTML = custom.map(([v, s]) => `<div class="stat"><b>${v}</b><span>${s}</span></div>`).join(''); return; }
@@ -855,6 +1290,19 @@ function renderStats(props, custom) {
 
 function renderLegend(smBreaks, smUnit, smLabel) {
   const el = document.getElementById('legend');
+  if (state.level === 'lct') {
+    const t = LCT_TECH[state.lct.tech];
+    const homes = state.lct.tech === 'all'
+      ? `<div><span class="sw" style="background:linear-gradient(90deg,${LCT_ALL_RAMP.join(',')});border-radius:7px"></span>Homes with 1, 2, 3, 4+ low carbon technologies</div>`
+      : `<div><span class="sw" style="background:${t.c};border-radius:7px"></span>Homes with ${t.n.toLowerCase() === 'transport' ? 'an EV home charger' : t.n.toLowerCase() === 'generation' ? 'rooftop PV' : t.n.toLowerCase() === 'heat' ? 'a heat pump or electric heating' : 'a home battery'}</div>`;
+    el.innerHTML = `<div class="legend">${homes}
+      <div><span class="sw" style="background:${getCss('--grey')};opacity:.4;border-radius:7px"></span>Homes without (yet)</div>
+      ${state.lct.tech === 'all' || state.lct.tech === 'ev' ? `<div><span class="sw" style="background:${LCT_TECH.ev.c};border-radius:7px;width:9px;height:9px;margin:0 8px 0 3px"></span>On-street EV charger</div>` : ''}
+      <div><span class="sw" style="background:linear-gradient(180deg,transparent 38%,${RAG.Green} 38%,${RAG.Green} 62%,transparent 62%)"></span>LV feeder / <span class="sw" style="background:${RAG.Green};border-radius:7px;border:1.5px solid #1b1f24;margin-left:4px"></span>substation under ${LCT_A.amber * 100}% loaded</div>
+      <div><span class="sw" style="background:${RAG.Amber}"></span>${LCT_A.amber * 100}–100% loaded</div>
+      <div><span class="sw" style="background:${RAG.Red}"></span>Over 100%: needs an upgrade or flexibility</div></div>`;
+    return;
+  }
   if (state.level === 'digonce') {
     el.innerHTML = `<div class="ramp" style="background:linear-gradient(90deg,${SM_RAMP.join(',')})"></div>
       <div class="ramp-l"><span>one signal</span><span>several</span><span>strong case</span></div>
@@ -949,6 +1397,7 @@ document.getElementById('levels').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const lvl = b.dataset.level;
   // network-wide secondary view keeps the current map position; drilling from a primary still scopes it
+  if (lvl === 'lct') { const again = state.level === 'lct'; state.level = lvl; state.filter = null; state.trail = []; return render(!again); }
   if (['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(lvl)) { state.level = lvl; state.filter = null; state.trail = []; return render(false); }
   state.level = lvl; state.filter = null; state.trail = []; render(true);
 });
@@ -1067,7 +1516,7 @@ function applyArea(fit = true) {
       [Math.min(a.getNorth(), x.getNorth()), Math.min(a.getEast(), x.getEast())]) : a);
     if (fit) map.fitBounds(b, { padding: [20, 20] });
   }
-  render(false);
+  render(state.level === 'lct' && fit && !sel.length);  // the pilot layer opens on its pilot when no area is chosen
 }
 document.getElementById('showLA').addEventListener('change', async e => {
   if (laLayer) { map.removeLayer(laLayer); laLayer = null; }
@@ -1086,12 +1535,12 @@ document.getElementById('areaClear').addEventListener('click', e => {
 
 document.getElementById('dno').addEventListener('change', e => {
   state.dno = e.target.value; state.trail = []; state.filter = null;
-  render(!['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'].includes(state.level));
+  render(!['secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce', 'lct'].includes(state.level));
 });
 
 // Shareable links: layer, colouring, operator, area, dig-once minimum score and the map view live in the URL hash,
 // e.g. #layer=digonce&la=E10000014&min=4&map=12/51.2000/-0.5000 (defaults are left out); in= is the site drilled into
-const HASH_LEVELS = ['gsp', 'bsp', 'primary', 'secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce'];
+const HASH_LEVELS = ['gsp', 'bsp', 'primary', 'secondary', 'smart', 'gas', 'water', 'telecoms', 'digonce', 'lct'];
 const HASH_METRICS = ['dRAG', 'gRAG', 'dHead', 'gHead'];
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1)), s = {};
@@ -1103,6 +1552,11 @@ function readHash() {
   if (h.get('in')) s.in = h.get('in');
   const min = parseInt(h.get('min'), 10);
   if (min >= 2 && min <= 13) s.digMin = min;
+  // low carbon tech: pilot, year, pathway, how the kit runs, what is shown
+  const yr = parseInt(h.get('year'), 10);
+  s.lct = { pilot: h.get('pilot') || undefined, year: yr >= 2025 && yr <= 2050 ? yr : undefined,
+            path: LCT_PATHS[h.get('path')] ? h.get('path') : undefined, op: ['worst', 'opt'].includes(h.get('run')) ? h.get('run') : undefined,
+            tech: LCT_TECH[h.get('show')] ? h.get('show') : undefined };
   const [z, lat, lon] = (h.get('map') || '').split('/').map(v => v === '' ? NaN : +v);
   if (isFinite(z) && Math.abs(lat) <= 85 && Math.abs(lon) <= 180) s.view = [[lat, lon], Math.max(0, Math.min(19, z))];
   return s;
@@ -1116,6 +1570,10 @@ function writeHash() {
   if (state.lic) h.set('lic', state.lic);
   if (state.filter) h.set('in', state.filter);
   if (state.digMin !== 2 && state.level === 'digonce') h.set('min', state.digMin);
+  if (state.level === 'lct') {
+    const d = { pilot: 'southall', year: 2035, path: 'EE', op: 'worst', tech: 'all' }, k = { pilot: 'pilot', year: 'year', path: 'path', op: 'run', tech: 'show' };
+    for (const [f, n] of Object.entries(k)) if (state.lct[f] !== d[f]) h.set(n, state.lct[f]);
+  }
   const c = map.getCenter(), z = map.getZoom();
   const hash = '#' + [h.toString(), `map=${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`].filter(Boolean).join('&');
   if (location.hash !== hash) try { history.replaceState(null, '', hash); } catch { /* browsers rate-limit history updates */ }
@@ -1123,6 +1581,8 @@ function writeHash() {
 // state from a hash; a hash is a whole view, so anything it leaves out goes back to its default
 function applyHash(s) {
   state.level = s.level || 'gsp'; state.metric = s.metric || 'dRAG'; state.digMin = s.digMin || 2;
+  const lc = s.lct || {};
+  state.lct = { pilot: lc.pilot || 'southall', year: lc.year || 2035, path: lc.path || 'EE', op: lc.op || 'worst', tech: lc.tech || 'all' };
   state.dno = s.dno && (s.dno === 'all' || (Object.hasOwn(manifest, s.dno) && manifest[s.dno].counts)) ? s.dno : 'all';
   state.la = s.la || null; state.lic = s.lic || null;  // checked against the boundaries once they load
   state.trail = []; state.filter = null;

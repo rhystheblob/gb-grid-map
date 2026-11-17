@@ -135,6 +135,42 @@ Outputs: `data/gb/digonce/s58.geojson`, `streets.json` (overview points), `cells
 Refresh monthly (new archive month); not part of the weekly cloud run because the 12-month window needs the local
 works summary. Scotland uses the Scottish Road Works Register, not covered.
 
+## Low carbon technologies to 2050 (`build_gb_lct.py`)
+
+Building-level pilots of how heat pumps, EV chargers, rooftop PV and home batteries arrive home by home from now to
+2050, which LV feeder and secondary substation each home is on, and how loaded those become. The map compares a
+**worst case** (every heat pump, charger and battery at full power at once; on a sunny noon every PV system and
+battery exporting) with **optimised** running (smart charging overnight or from PV, heat pumps pre-heating and
+diversified, batteries covering the evening peak and soaking up PV). The panel shows the upgrades each needs
+(feeder splits, transformer swaps, new substations), their indicative cost, the peak shifted (flexibility), PV used
+at home rather than exported, and the saving per home and on bills.
+
+| Pilot | Network | Homes | Feeders / substations | Today's load |
+|---|---|---|---|---|
+| Southall (SSEN, The Green primary, Ealing) | **real** SSEN LV cables (`data/lv_pilot.geojson`, conductor size gives the rating) | 4,387 | 82 / 31 | smart meter peak per LV feeder (Jan 2026) |
+| Aberfeldy (SSEN, Aberfeldy primary, Perth and Kinross; rural, off-gas) | **synthetic**: SSEN's secondary supply areas, feeders routed along OpenStreetMap roads | 1,917 | 253 / 145 | smart meter peak per substation where published |
+
+- **Uptake**: SSEN DFES 2025 (Regen for SSEN, Dec 2025), yearly per primary substation, for Electric Engagement,
+  Holistic Transition and Falling Behind, plus this map's own "Full electrification by 2050" stretch case (every home
+  a heat pump, a charger at every home with parking, PV on 60% of houses). DFES totals include new-build homes, which
+  connect to new networks: each new home takes 0.85 heat pumps and 2.5 kW of PV off the totals (Future Homes
+  Standard); chargers, batteries and direct electric heating are split pro rata.
+- **Homes**: OS Open UPRN address points inside OS OpenMap Local building outlines (OS open data, OGL), minus
+  non-domestic buildings (OpenStreetMap tags and points of interest). Addresses overcount homes (parent records,
+  garages), so multi-address blocks are scaled until the pilot matches SSEN's customer count for the primary.
+  House type from footprint per address. Which homes have an LCT today and which adopt first is modelled (house type,
+  parking, roof size, a repeatable random draw), not known.
+- **Ratings**: feeders = the lower of the head cable's thermal rating and a 6% voltage drop (3% rise for export)
+  over the feeder length; transformers are assumed (SSEN publishes none) from customers and measured peak.
+- **Assumptions** (kW per device, costs, voltage limits, bill recovery) live in one `LCT_A` object in `index.html`
+  and are listed under "Model assumptions" on the map. Upgrade costs are indicative 2025 prices, not yet checked
+  against Ofgem's RIIO-ED2 volume-driver unit rates.
+
+Inputs (git-ignored `data/raw/lct/`): `python3 build_gb_lct.py --fetch` downloads them (needs `SSEN_API_KEY` and
+openpyxl; ~900 MB of OS downloads are clipped to the pilots and deleted). Outputs: `data/gb/lct/index.json` and
+`data/gb/lct/<pilot>.json` (~1 MB together). Rebuild when SSEN publishes a new DFES (yearly, around December) or
+smart meter data is refreshed.
+
 ## Local authorities (`build_gb_boundaries.py`)
 
 Overlay of the 207 GB upper-tier councils (counties and unitary authorities: in England the highway authorities

@@ -1,6 +1,20 @@
 # GB Grid Map
 
-See README.md for the data pipeline and layers.
+See README.md for the data pipeline and layers, and BACKLOG.md for planned work and the improvement agent's rules.
+
+## Working on this repo
+
+- The map is one static page, `index.html` (Leaflet, plain JS), reading files under `data/gb/` that the Python
+  `build_gb_*.py` scripts write. Raw inputs live in git-ignored `data/raw/` on the owner's Mac only.
+- Live site: https://dhjqzmvbjasrm.cloudfront.net/ (AWS S3 + CloudFront, eu-north-1; GitHub Pages is off).
+  Deploy = `PATH=$HOME/.local/bin:$PATH infra/deploy.sh` (uploads git-tracked `index.html` + `data/`, so commit
+  first). If it says the session expired, the owner runs `aws login --profile gb-grid-map`.
+- Previewing locally from the desktop app: its preview server can't read ~/Documents (macOS privacy), so copy the
+  tracked site to the scratchpad and serve it there (config "map-preview" in ../.claude/launch.json, port 8766).
+- New layers follow the existing pattern: a `build_gb_<layer>.py` writing `data/gb/<layer>/`, a level button and a
+  `render<Layer>()` in `index.html` that respects the area filter (`inArea` / `featInArea`), shareable-link state
+  and the stats panel; document the source, licence and refresh steps in README.md.
+- Commit on `main` with clear messages; push and deploy only when the owner asks.
 
 <!-- BEGIN AWS Agent Toolkit rules -->
 # AWS Guidance for the new AWS experience

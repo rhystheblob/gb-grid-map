@@ -1125,7 +1125,8 @@ async function renderLct(token, fit) {
     .bindTooltip(`${p.name}: ${p.homes.toLocaleString()} homes, ${p.network} LV network. Click to open.`)
     .on('click', () => { state.lct.pilot = p.id; render(true); })));
 
-  const blocks = L.layerGroup(P.blocks.map(r => L.polygon(r.map(([x, y]) => [y, x]), { stroke: false, fillColor: '#8a94a3', fillOpacity: 0.18, interactive: false })));
+  const blocks = L.layerGroup(P.blocks.map(r => L.polygon(r.map(([x, y]) => [y, x]),
+    { color: '#5f6b7a', weight: 1, opacity: 0.8, fillColor: '#8a94a3', fillOpacity: 0.22, interactive: false })));  // building outlines (OS)
   const feederLayers = P.feeders.map((f, i) => {
     const g = L.layerGroup();
     if (!subIn[f.sub]) return g;

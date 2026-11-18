@@ -227,6 +227,15 @@ map.getPane('la').style.pointerEvents = 'none';
 // LV feeders and substations of the low carbon tech layer sit above its home dots
 map.createPane('lctNet');
 map.getPane('lctNet').style.zIndex = 430;
+const lctRenderer = L.canvas({ pane: 'lctNet', tolerance: 5 });  // a few pixels of slack when clicking a feeder
+// Size on screen for something drawn at a fixed size on the ground: grows as you zoom in, never larger than `metres`
+// (a house is ~5-8 m wide), but never smaller than `minPx` so it stays visible and clickable when zoomed out.
+const groundPx = (metres, minPx) => {
+  const mpp = 40075016.686 * Math.cos(map.getCenter().lat * Math.PI / 180) / (256 * 2 ** map.getZoom());
+  return Math.max(minPx, metres / mpp);
+};
+const LCT_SIZE = { home: [3.5, 2.6], sub: [5, 6.5], pmt: [4, 4.5], os: [2, 3.2], feeder: [2.5, 3.5], svc: [0.8, 1] };  // [metres, min px]
+const lctPx = k => groundPx(...LCT_SIZE[k]);
 
 const fmt = (v, u) => v == null || isNaN(v) ? '–' : `${(+v).toFixed(1)} ${u}`;
 const metricVal = (p, m) => m === 'dHead' ? p.dhead : p.ghead;
@@ -371,6 +380,7 @@ const DotLayer = L.Layer.extend({
   onRemove(map) { L.DomUtil.remove(this._canvas); map.off('moveend resize', this._redraw, this); },
   // dot radius in pixels: grows with zoom (up to 9 px at street level) so dots stay easy to click
   radius() {
+    if (this._opts.radiusFn) return this._opts.radiusFn();
     const z = this._map.getZoom();
     return (this._opts.scale || 1) * (z < 7 ? 0.9 : z < 9 ? 1.4 : z < 11 ? 2.2 : Math.min(9, 3.2 + (z - 11) * 1.2));
   },
@@ -1119,14 +1129,15 @@ async function renderLct(token, fit) {
   const feederLayers = P.feeders.map((f, i) => {
     const g = L.layerGroup();
     if (!subIn[f.sub]) return g;
-    const mains = L.polyline(f.mains.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', weight: 3.5, opacity: 0.95, lineCap: 'round', bubblingMouseEvents: false });
-    const svc = f.svc && f.svc.length ? L.polyline(f.svc.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', weight: 1, opacity: 0.6, interactive: false }) : null;
+    const mains = L.polyline(f.mains.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', renderer: lctRenderer, weight: lctPx('feeder'), opacity: 0.95, lineCap: 'round', bubblingMouseEvents: false });
+    const svc = f.svc && f.svc.length ? L.polyline(f.svc.map(l => l.map(([x, y]) => [y, x])), { pane: 'lctNet', renderer: lctRenderer, weight: lctPx('svc'), opacity: 0.6, interactive: false }) : null;
     mains.bindPopup(() => lctFeederPopup(P, i), { maxWidth: 400 }).bindTooltip(`${f.name} · ${P.subs[f.sub][2]}`, { sticky: true });
     g.addLayer(mains); if (svc) g.addLayer(svc);
     g._lines = [mains, svc].filter(Boolean);
+    g._mains = mains; g._svc = svc;
     return g;
   });
-  const subLayer = L.layerGroup(P.subs.map((s, j) => subIn[j] ? L.circleMarker([s[1], s[0]], { pane: 'lctNet', radius: s[4] === 'PMT' ? 4.5 : 6.5, color: '#1b1f24', weight: 1.4, fillOpacity: 1, bubblingMouseEvents: false })
+  const subLayer = L.layerGroup(P.subs.map((s, j) => subIn[j] ? L.circleMarker([s[1], s[0]], { pane: 'lctNet', renderer: lctRenderer, radius: lctPx(s[4] === 'PMT' ? 'pmt' : 'sub'), color: '#1b1f24', weight: 1.4, fillOpacity: 1, bubblingMouseEvents: false })
     .bindPopup(() => lctSubPopup(P, j), { maxWidth: 380 }).bindTooltip(s[2]) : null).filter(Boolean));
   const subMarkers = []; subLayer.eachLayer(m => subMarkers.push(m));
   const subIdx = P.subs.map((s, j) => j).filter(j => subIn[j]);
@@ -1141,7 +1152,7 @@ async function renderLct(token, fit) {
     const on = (inc.heat && (hp || de)) || (inc.ev && ev) || (inc.pv && pv) || (inc.bat && bat);
     return on ? inc.c : null;
   };
-  const dots = new DotLayer(homesIn, homeColour, { scale: 0.45 });
+  const dots = new DotLayer(homesIn, homeColour, { radiusFn: () => lctPx('home') });
 
   const draw = () => {
     const yi = P.years.indexOf(L_.year), c = P.curves[L_.path];
@@ -1153,7 +1164,7 @@ async function renderLct(token, fit) {
     osLayer.clearLayers();
     if (L_.tech === 'all' || L_.tech === 'ev')
       P.onstreet.slice(0, c.os[yi]).forEach(s => inArea(s[0], s[1]) && osLayer.addLayer(L.circleMarker([s[1], s[0]],
-        { pane: 'lctNet', radius: 3.2, color: '#ffffff', weight: 1, fillColor: LCT_TECH.ev.c, fillOpacity: 1, interactive: false })));
+        { pane: 'lctNet', renderer: lctRenderer, radius: lctPx('os'), color: '#ffffff', weight: 1, fillColor: LCT_TECH.ev.c, fillOpacity: 1, interactive: false })));
     dots._redraw && map.hasLayer(dots) && dots._redraw();
 
     // stats for the area (homes, feeders, substations inside it)
@@ -1216,7 +1227,14 @@ async function renderLct(token, fit) {
     }
     if (best) L.popup({ maxWidth: 360 }).setLatLng([best[1], best[0]]).setContent(lctHomePopup(P, best)).openOn(map);
   };
-  const zoomBlocks = () => { if (map.getZoom() >= 15) blocks.addTo(map); else map.removeLayer(blocks); };
+  const zoomBlocks = () => {
+    if (map.getZoom() >= 15) blocks.addTo(map); else map.removeLayer(blocks);
+    // feeders, substations and chargers keep a fixed size on the ground, so they grow as you zoom in
+    const wF = lctPx('feeder'), wS = lctPx('svc'), rSub = lctPx('sub'), rPmt = lctPx('pmt'), rOs = lctPx('os');
+    feederLayers.forEach(g => { if (g._mains) g._mains.setStyle({ weight: wF }); if (g._svc) g._svc.setStyle({ weight: wS }); });
+    subMarkers.forEach((m, k) => m.setRadius(P.subs[subIdx[k]][4] === 'PMT' ? rPmt : rSub));
+    osLayer.eachLayer(m => m.setRadius(rOs));
+  };
 
   P._draw = draw;
   renderLegend();

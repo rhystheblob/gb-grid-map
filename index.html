@@ -234,7 +234,7 @@ const groundPx = (metres, minPx) => {
   const mpp = 40075016.686 * Math.cos(map.getCenter().lat * Math.PI / 180) / (256 * 2 ** map.getZoom());
   return Math.max(minPx, metres / mpp);
 };
-const LCT_SIZE = { home: [3.5, 2.6], sub: [5, 6.5], pmt: [4, 4.5], os: [2, 3.2], feeder: [2.5, 3.5], svc: [0.8, 1] };  // [metres, min px]
+const LCT_SIZE = { home: [2.3, 2.6], sub: [5, 6.5], pmt: [4, 4.5], os: [2, 3.2], feeder: [2.5, 3.5], svc: [0.8, 1] };  // [metres, min px]
 const lctPx = k => groundPx(...LCT_SIZE[k]);
 
 const fmt = (v, u) => v == null || isNaN(v) ? '–' : `${(+v).toFixed(1)} ${u}`;
@@ -1126,7 +1126,10 @@ async function renderLct(token, fit) {
     .on('click', () => { state.lct.pilot = p.id; render(true); })));
 
   const blocks = L.layerGroup(P.blocks.map(r => L.polygon(r.map(([x, y]) => [y, x]),
-    { color: '#5f6b7a', weight: 1, opacity: 0.8, fillColor: '#8a94a3', fillOpacity: 0.22, interactive: false })));  // building outlines (OS)
+    { color: '#5f6b7a', weight: 1.2, opacity: 0.85, fillColor: '#8a94a3', fillOpacity: 0.22, interactive: false })));  // building outlines (OS)
+  // estimated house plots inside terraces and semis (OS merges each row into one outline), from street zoom
+  const houses = L.layerGroup((P.houses || []).map(r => L.polygon(r.map(([x, y]) => [y, x]),
+    { color: '#6b7686', weight: 0.8, opacity: 0.75, fill: false, interactive: false })));
   const feederLayers = P.feeders.map((f, i) => {
     const g = L.layerGroup();
     if (!subIn[f.sub]) return g;
@@ -1230,6 +1233,7 @@ async function renderLct(token, fit) {
   };
   const zoomBlocks = () => {
     if (map.getZoom() >= 15) blocks.addTo(map); else map.removeLayer(blocks);
+    if (map.getZoom() >= 17) houses.addTo(map); else map.removeLayer(houses);
     // feeders, substations and chargers keep a fixed size on the ground, so they grow as you zoom in
     const wF = lctPx('feeder'), wS = lctPx('svc'), rSub = lctPx('sub'), rPmt = lctPx('pmt'), rOs = lctPx('os');
     feederLayers.forEach(g => { if (g._mains) g._mains.setStyle({ weight: wF }); if (g._svc) g._svc.setStyle({ weight: wS }); });
@@ -1250,7 +1254,7 @@ async function renderLct(token, fit) {
   if (!homesIn.length) renderStats(null, [['–', `no homes of the ${P.name} pilot in the selected area`]]);
   secCleanup = () => {
     map.off('click', onClick); map.off('zoomend', zoomBlocks);
-    [blocks, dots, osLayer, subLayer, others, ...feederLayers].forEach(l => map.removeLayer(l));
+    [blocks, houses, dots, osLayer, subLayer, others, ...feederLayers].forEach(l => map.removeLayer(l));
     panel.style.display = 'none'; perfEl.style.display = 'none'; perfEl.innerHTML = '';
     P._draw = null; lctStop();
   };

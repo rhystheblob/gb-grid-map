@@ -158,7 +158,9 @@ at home rather than exported, and the saving per home and on bills.
 - **Homes**: OS Open UPRN address points inside OS OpenMap Local building outlines (OS open data, OGL), minus
   non-domestic buildings (OpenStreetMap tags and points of interest). Addresses overcount homes (parent records,
   garages), so multi-address blocks are scaled until the pilot matches SSEN's customer count for the primary.
-  House type from footprint per address. Which homes have an LCT today and which adopt first is modelled (house type,
+  House type from footprint per address. OS outlines merge each terrace row (and pair of semis) into one block, so
+  each block is cut into equal-area house plots across its long side (estimated party walls, drawn from zoom 17)
+  and each home's dot sits in its plot. Which homes have an LCT today and which adopt first is modelled (house type,
   parking, roof size, a repeatable random draw), not known.
 - **Ratings**: feeders = the lower of the head cable's thermal rating and a 6% voltage drop (3% rise for export)
   over the feeder length; transformers are assumed (SSEN publishes none) from customers and measured peak.

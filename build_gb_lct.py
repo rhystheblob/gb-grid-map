@@ -146,6 +146,48 @@ def cable_label(head):
 
 # ---------------------------------------------------------------- homes
 
+def split_block(block, n):
+    """Cut a terrace or semi-detached block into n house plots of equal area, across its long axis.
+
+    OS OpenMap Local merges a row of houses into one outline, so party walls are estimated: plots are cut
+    perpendicular to the block's longest side. Returns (plots in order along the row, unit axis vector)."""
+    rect = block.minimum_rotated_rectangle
+    cs = list(rect.exterior.coords)[:4]
+    edges = [(cs[i], cs[(i + 1) % 4]) for i in range(4)]
+    (x0, y0), (x1, y1) = max(edges, key=lambda e: math.hypot(e[1][0] - e[0][0], e[1][1] - e[0][1]))
+    L_ = math.hypot(x1 - x0, y1 - y0) or 1
+    ux, uy = (x1 - x0) / L_, (y1 - y0) / L_
+    vx, vy = -uy, ux
+    proj = [x * ux + y * uy for x, y in cs]
+    t0, t1 = min(proj), max(proj)
+    cv = block.centroid.x * vx + block.centroid.y * vy  # the block's position across the axis
+    lo_v, hi_v = cv - 1e3, cv + 1e3
+
+    def strip(a, b):  # the band between positions a and b along the axis, around the block
+        return Polygon([(a * ux + lo_v * vx, a * uy + lo_v * vy), (b * ux + lo_v * vx, b * uy + lo_v * vy),
+                        (b * ux + hi_v * vx, b * uy + hi_v * vy), (a * ux + hi_v * vx, a * uy + hi_v * vy)])
+
+    total, cuts = block.area, [t0]
+    for k in range(1, n):  # bisect for the cut that leaves k/n of the area behind it
+        lo, hi = cuts[-1], t1
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            if block.intersection(strip(t0 - 1, mid)).area < total * k / n:
+                lo = mid
+            else:
+                hi = mid
+        cuts.append((lo + hi) / 2)
+    cuts.append(t1)
+    plots = []
+    for a, b in zip(cuts, cuts[1:]):
+        g = block.intersection(strip(a, b))
+        if g.geom_type != "Polygon":
+            polys = [q for q in getattr(g, "geoms", []) if q.geom_type == "Polygon"]
+            g = max(polys, key=lambda q: q.area) if polys else None
+        plots.append(g if g is not None and not g.is_empty and g.area > 1 else None)
+    return plots, (ux, uy)
+
+
 def load_osm(pilot):
     els = json.load(open(RAW / f"osm_{pilot}.json"))["elements"]
     nondom, roads, pois, landuse = [], [], [], []
@@ -218,9 +260,17 @@ def load_homes(pilot, rural, scale=1.0):
             n_units = n
         pts = sorted(pts, key=lambda p: p[2])[:n_units]
         kept_blocks.append(b)
-        for x, y, u in pts:
+        plots = [None] * len(pts)
+        if typ in ("terrace", "semi") and len(pts) >= 2:  # one plot per house, homes in order along the row
+            cut, (ux, uy) = split_block(b, len(pts))
+            pts = sorted(pts, key=lambda p: p[0] * ux + p[1] * uy)
+            plots = cut
+        for (x, y, u), plot in zip(pts, plots):
+            if plot is not None:  # the home's dot sits inside its own plot (else it keeps its address point)
+                c = plot.representative_point()
+                x, y = c.x, c.y
             homes.append({"x": x, "y": y, "uprn": u, "type": typ, "block": len(kept_blocks) - 1,
-                          "plot": b.area / n_units, "single": n_units == 1 and len(pts) == 1})
+                          "plot": b.area / n_units, "single": n_units == 1 and len(pts) == 1, "house": plot})
     print(f"  {pilot}: {len(homes)} dwellings in {len(kept_blocks)} domestic blocks "
           f"({collections.Counter(h['type'] for h in homes)})")
     return homes, kept_blocks, roads
@@ -767,6 +817,12 @@ def main():
             g = blocks[b].simplify(0.8)
             g = g if g.geom_type == "Polygon" else max(g.geoms, key=lambda p: p.area)
             out_blocks.append([ll(*c) for c in g.exterior.coords])
+        # estimated house plots inside terrace / semi blocks (party walls)
+        out_houses = []
+        for h in homes:
+            if h.get("house") is not None:
+                g = h["house"].simplify(0.3)
+                out_houses.append([ll(*c) for c in g.exterior.coords])
         out_homes = [[*ll(h["x"], h["y"]), fmap[h["feeder"]], TYPES.index(h["type"]), int(h["offstreet"]),
                       h["r_hp"], h["r_ev"], h["r_pv"], h["r_bat"], bmap[h["block"]], h["r_de"]] for h in homes]
         sites = [[s[0], s[1], fmap[s[2]]] for s in sites if s[2] in fmap]
@@ -777,7 +833,7 @@ def main():
             "network": kind, "note": P["note"], "rural": P["rural"], "years": YEARS,
             "bounds": [[min(lats), min(lons)], [max(lats), max(lons)]],
             "primary_customers": customers[P["primary"]], "eligible": eligible, "curves": curves,
-            "subs": out_subs, "feeders": feeders, "homes": out_homes, "blocks": out_blocks, "onstreet": sites,
+            "subs": out_subs, "feeders": feeders, "homes": out_homes, "blocks": out_blocks, "houses": out_houses, "onstreet": sites,
             "fields": {"homes": "lon, lat, feeder, type (0 detached, 1 semi, 2 terrace, 3 flat), off-street parking, "
                                 "queue place 0-999 for heat pump, home charger, PV, battery (999 = never), block, "
                                 "queue place for direct electric heating",
